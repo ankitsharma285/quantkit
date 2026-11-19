@@ -21,7 +21,7 @@ def load_eval_tokens(dataset: str, tokenizer, seqlen: int = 2048, c4_windows: in
     from datasets import load_dataset
 
     if dataset == "wikitext2":
-        ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+        ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="test")
         text = "\n\n".join(ds["text"])
         ids = tokenizer(text, return_tensors="pt").input_ids
     elif dataset == "c4":
