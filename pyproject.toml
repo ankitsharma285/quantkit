@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantkit"
+version = "0.1.0"
+description = "From-scratch LLM weight quantization (RTN, GPTQ, AWQ) with a Triton W4A16 kernel"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.3",
+    "transformers>=4.56",
+    "datasets>=2.20",
+    "safetensors>=0.4",
+    "accelerate>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+eval = ["lm-eval>=0.4"]
+
+[tool.setuptools.packages.find]
+include = ["quantkit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gpu: needs a CUDA device"]
