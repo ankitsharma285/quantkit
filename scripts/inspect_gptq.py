@@ -22,14 +22,19 @@ def main(paths: list[str]) -> None:
         q = r["quant"]
         ppl = r["perplexity"].get("wikitext2", {}).get("ppl", float("nan"))
         print(f"\n== {r['label']}  (damp={q.get('damp')}, act_order={q.get('act_order')}, "
+              f"static_groups={q.get('static_groups')}, "
               f"skip_first_tokens={q.get('skip_first_tokens', 0)})  wikitext2 ppl={ppl:.3f}")
         rows = sorted(stats.items(), key=lambda kv: kv[1]["loss"], reverse=True)
-        print(f"{'module':40s} {'loss':>11s} {'Hdiag max/median':>17s} {'Hdiag max':>11s}")
+        print(f"{'module':40s} {'loss':>11s} {'Hdiag max/median':>17s} {'scale growth':>13s}")
         for name, st in rows[:12]:
             ratio = st.get("hdiag_max", float("nan")) / max(st.get("hdiag_median", float("nan")), 1e-30)
-            print(f"{name:40s} {st['loss']:11.4g} {ratio:17.4g} {st.get('hdiag_max', float('nan')):11.4g}")
+            print(f"{name:40s} {st['loss']:11.4g} {ratio:17.4g} {st.get('scale_growth', float('nan')):13.3g}")
         total = sum(st["loss"] for st in stats.values())
+        growth = [st["scale_growth"] for st in stats.values() if "scale_growth" in st]
         print(f"{'total loss':40s} {total:11.4g}")
+        if growth:
+            print(f"scale growth across modules: max {max(growth):.3g}, "
+                  f"modules above 1.5x: {sum(g > 1.5 for g in growth)}/{len(growth)}")
 
 
 if __name__ == "__main__":

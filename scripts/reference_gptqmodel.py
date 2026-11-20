@@ -36,6 +36,7 @@ def main() -> None:
     ap.add_argument("--group-size", type=int, default=128)
     ap.add_argument("--damp", type=float, default=0.01)
     ap.add_argument("--act-order", action="store_true")
+    ap.add_argument("--static-groups", action="store_true")
     ap.add_argument("--nsamples", type=int, default=128)
     ap.add_argument("--calib-seqlen", type=int, default=2048)
     ap.add_argument("--calib-seed", type=int, default=0)
@@ -58,6 +59,9 @@ def main() -> None:
         group_size=args.group_size,
         sym=False,
         desc_act=args.act_order,
+        # Our act-order fixes group scales up front (contiguous groups, no g_idx);
+        # GPTQModel only does the same with static_groups=True.
+        static_groups=args.act_order or args.static_groups,
         act_group_aware=False,
         damp_percent=args.damp,
         true_sequential=True,
@@ -72,7 +76,8 @@ def main() -> None:
 
     qmodel = GPTQModel.load(args.out, device="cuda")
     hf_model = qmodel.model  # the underlying transformers module
-    label = f"ref-gptqmodel-w{args.bits}-g{args.group_size}" + ("-ao" if args.act_order else "")
+    label = f"ref-gptqmodel-w{args.bits}-g{args.group_size}"
+    label += "-ao" if args.act_order else ("-sg" if args.static_groups else "")
     if args.damp != 0.01:
         label += f"-damp{args.damp}"
 
@@ -87,7 +92,8 @@ def main() -> None:
         "model": args.model,
         "quant": {"method": "gptqmodel", "version": gptqmodel.__version__, "bits": args.bits,
                   "group_size": args.group_size, "sym": False, "damp": args.damp,
-                  "act_order": args.act_order, "act_group_aware": False,
+                  "act_order": args.act_order, "static_groups": args.act_order or args.static_groups,
+                  "act_group_aware": False,
                   "calib_dataset": "c4", "nsamples": args.nsamples,
                   "calib_seqlen": args.calib_seqlen, "calib_seed": args.calib_seed},
         "perplexity": ppl,

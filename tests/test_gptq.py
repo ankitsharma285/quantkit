@@ -114,3 +114,15 @@ def test_rejects_incompatible_group_and_block():
     W, H, _ = _problem(K=384)
     with pytest.raises(ValueError):
         gptq_quantize(W, H, group_size=96, blocksize=128)
+
+
+def test_static_groups_without_act_order():
+    W, H, X = _problem(seed=5, dtype=torch.float32)
+    p, st = gptq_quantize(W, H, bits=4, group_size=64, static_groups=True)
+    for g in range(W.shape[1] // 64):
+        s, _ = _scale_zero(W[:, g * 64 : (g + 1) * 64], 4, False)
+        torch.testing.assert_close(p.scales[:, g], s.squeeze(1))
+    assert st["scale_growth"] == pytest.approx(1.0)
+    e_rtn = _out_err(W, dequantize(quantize_rtn(W, 4, 64), torch.float32), X)
+    assert _out_err(W, dequantize(p, torch.float32), X) < e_rtn
+

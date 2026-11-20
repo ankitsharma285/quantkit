@@ -62,6 +62,7 @@ def quantize_model_gptq(
     blocksize: int = 128,
     percdamp: float = 0.01,
     act_order: bool = False,
+    static_groups: bool = False,
     true_sequential: bool = True,
     pack: bool = True,
     device: str = "cuda",
@@ -109,6 +110,7 @@ def quantize_model_gptq(
                 p, st = gptq_quantize(
                     m.weight.data, accs[name].H, bits=bits, group_size=group_size, sym=sym,
                     blocksize=blocksize, percdamp=percdamp, act_order=act_order,
+                    static_groups=static_groups,
                 )
                 m.weight.data = dequantize(p, dtype)
                 params[name] = p

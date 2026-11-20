@@ -34,6 +34,8 @@ def make_label(args) -> str:
     if args.method == "gptq":
         if args.act_order:
             label += "-ao"
+        elif args.static_groups:
+            label += "-sg"
         if args.nsamples != 128:
             label += f"-n{args.nsamples}"
         if args.calib_dataset != "c4":
@@ -71,6 +73,8 @@ def main() -> None:
     ap.add_argument("--blocksize", type=int, default=128)
     ap.add_argument("--damp", type=float, default=0.01)
     ap.add_argument("--act-order", action="store_true")
+    ap.add_argument("--static-groups", action="store_true",
+                    help="fix group scales from the original weights (implied by --act-order)")
     ap.add_argument("--no-true-sequential", action="store_true")
     ap.add_argument("--skip-first-tokens", type=int, default=0,
                     help="leave the first N positions of each calibration window out of the Hessians")
@@ -110,6 +114,7 @@ def main() -> None:
                 "calib_dataset": args.calib_dataset, "nsamples": args.nsamples,
                 "calib_seqlen": args.calib_seqlen, "calib_seed": args.calib_seed,
                 "blocksize": args.blocksize, "damp": args.damp, "act_order": args.act_order,
+                "static_groups": args.static_groups or args.act_order,
                 "true_sequential": not args.no_true_sequential,
                 "skip_first_tokens": args.skip_first_tokens,
             })
@@ -117,6 +122,7 @@ def main() -> None:
             extra["layer_stats"] = quantize_model_gptq(
                 model, calib, bits=args.bits, group_size=args.group_size, sym=args.sym,
                 blocksize=args.blocksize, percdamp=args.damp, act_order=args.act_order,
+                static_groups=args.static_groups,
                 true_sequential=not args.no_true_sequential, pack=not args.fake, device=device,
                 skip_first_tokens=args.skip_first_tokens,
             )

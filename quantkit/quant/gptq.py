@@ -74,13 +74,19 @@ def gptq_quantize(
     blocksize: int = 128,
     percdamp: float = 0.01,
     act_order: bool = False,
+    static_groups: bool = False,
 ) -> tuple[QuantParams, dict]:
     """Quantize W: [N, K] given H: [K, K]. Returns (params, stats).
 
-    act_order processes columns in decreasing diag(H) (most-activated first).
-    Group scales are then fixed up front from the original weights ("static
-    groups"), so groups stay contiguous in K and the storage format and kernel
-    need no per-column group index.
+    Group scales are either dynamic (default, as in the GPTQ paper: computed when
+    a group starts, from the weights after earlier error feedback) or static
+    (computed up front from the original weights). act_order processes columns in
+    decreasing diag(H) and always uses static groups, so groups stay contiguous
+    in K and the storage format and kernel need no per-column group index.
+
+    stats["scale_growth"] = mean final scale / mean RTN scale on the original
+    weights. Well above 1 means error feedback inflated the weights before their
+    group scale was chosen, coarsening the grid for the whole group.
     """
     if W.dim() != 2 or H.shape != (W.shape[1], W.shape[1]):
         raise ValueError(f"shape mismatch: W {tuple(W.shape)}, H {tuple(H.shape)}")
@@ -99,12 +105,14 @@ def gptq_quantize(
     H[dead, dead] = 1.0
     W[:, dead] = 0.0
 
+    static = act_order or static_groups
     scales = torch.zeros(N, n_groups, dtype=work, device=W.device)
     zeros = torch.zeros(N, n_groups, dtype=work, device=W.device)
+    for g in range(n_groups):
+        s, z = _scale_zero(W[:, g * G : (g + 1) * G], bits, sym)
+        scales[:, g], zeros[:, g] = s.squeeze(1), z.squeeze(1)
+    rtn_scale_mean = float(scales.mean())
     if act_order:
-        for g in range(n_groups):
-            s, z = _scale_zero(W[:, g * G : (g + 1) * G], bits, sym)
-            scales[:, g], zeros[:, g] = s.squeeze(1), z.squeeze(1)
         perm = torch.argsort(torch.diag(H), descending=True)
         W, H = W[:, perm], H[perm][:, perm]
         invperm = torch.argsort(perm)
@@ -143,7 +151,7 @@ def gptq_quantize(
                 g = int(perm[col]) // G
             else:
                 g = col // G
-                if col % G == 0:
+                if col % G == 0 and not static:
                     # Scales come from the weights as they are *now*, after the error
                     # feedback from every earlier column has been applied.
                     cur = W[:, col : col + G] if i == 0 else W1[:, i : i + G]
@@ -177,5 +185,5 @@ def gptq_quantize(
         group_size=G,
     )
     stats = {"loss": float(losses.sum()), "damp": float(damp), "dead_cols": int(dead.sum()),
-             **hdiag_stats}
+             "scale_growth": float(scales.mean()) / max(rtn_scale_mean, 1e-30), **hdiag_stats}
     return params, stats

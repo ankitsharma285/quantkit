@@ -120,17 +120,29 @@ _Filled in as phases complete. Every cell is rebuilt from `results/*.json`._
 | fp16 | 16 | – | 9.751 | 14.012 | | – |
 | RTN | 4 | per-channel | 18.084 (+85%) | 27.622 (+97%) | | – |
 | RTN | 4 | 128 | 11.728 (+20%) | 17.439 (+24%) | | – |
-| GPTQ | 4 | 128 | | | | GPTQModel: |
-| GPTQ + act-order | 4 | 128 | | | | |
-| GPTQ, damp 0.05 | 4 | 128 | | | | |
+| GPTQ (paper defaults) | 4 | 128 | 34.171 (+250%) | 74.037 | | GPTQModel, same settings: 50.863 |
+| GPTQ, damp 0.05 | 4 | 128 | 81.593 | 130.603 | | |
+| GPTQ, first calibration token left out of H | 4 | 128 | 11.155 (+14%) | | | |
+| GPTQ, first 4 tokens left out of H | 4 | 128 | 11.099 (+14%) | | | |
+| GPTQ + act-order (static groups) | 4 | 128 | 10.780 (+11%) | 15.320 (+9%) | | GPTQModel: |
+| GPTQ + act-order, first token left out of H | 4 | 128 | 11.238 | | | |
 | AWQ | 4 | 128 | | | | llm-compressor: |
 | RTN (fake quant) | 3 | 128 | 35.041 (+259%) | 57.175 (+308%) | | – |
-| GPTQ (fake quant) | 3 | 128 | | | | |
+| GPTQ (fake quant) | 3 | 128 | 32.172 | 43.773 | | |
 | AWQ (fake quant) | 3 | 128 | | | | |
 
 Percentages are relative to fp16. The packed W4 g128 checkpoint, saved and reloaded from disk, gives
 WikiText-2 perplexity 11.728, identical to the in-memory run. Plain RTN costs Llama-3.2-1B 20% perplexity
 at W4 g128, which sets the gap GPTQ and AWQ must close.
+
+**Phase 2 finding (in progress): vanilla GPTQ breaks on Llama-3.2-1B.** With the paper's settings, GPTQ
+W4 g128 reaches WikiText-2 perplexity 34.2, three times worse than plain RTN (11.7); GPTQModel with the same
+settings and the same calibration windows also breaks (50.9). Leaving the first position of each
+calibration window out of the Hessians recovers 11.16, which points at the first token: it becomes an
+attention sink with massive activations in a few channels, and one such token per window dominates each
+Hessian. Act-order with static groups works without that change (10.78). Raising damping to 5% makes plain
+GPTQ worse (81.6), not better; not yet explained. All numbers are one calibration seed; seed variance and
+the mechanism (static group scales vs column order) are being tested next.
 
 **Kernel (per layer shape, M = 1)**
 
