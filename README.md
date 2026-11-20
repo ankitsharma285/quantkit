@@ -124,7 +124,9 @@ _Filled in as phases complete. Every cell is rebuilt from `results/*.json`._
 | GPTQ, damp 0.05 | 4 | 128 | 81.593 | 130.603 | | |
 | GPTQ, first calibration token left out of H | 4 | 128 | 11.155 (+14%) | | | |
 | GPTQ, first 4 tokens left out of H | 4 | 128 | 11.099 (+14%) | | | |
-| GPTQ + act-order (static groups) | 4 | 128 | 10.780 (+11%) | 15.320 (+9%) | | GPTQModel: |
+| GPTQ, static groups (no reordering) | 4 | 128 | 35.795 | | | |
+| GPTQ, static groups, first token left out of H | 4 | 128 | 11.145 | | | |
+| **GPTQ + act-order (static groups)** | 4 | 128 | **10.780 (+11%)**; 3 seeds 10.71 ± 0.11 | 15.320 (+9%) | | GPTQModel: 11.086 / 16.241 |
 | GPTQ + act-order, first token left out of H | 4 | 128 | 11.238 | | | |
 | AWQ | 4 | 128 | | | | llm-compressor: |
 | RTN (fake quant) | 3 | 128 | 35.041 (+259%) | 57.175 (+308%) | | – |
@@ -135,14 +137,23 @@ Percentages are relative to fp16. The packed W4 g128 checkpoint, saved and reloa
 WikiText-2 perplexity 11.728, identical to the in-memory run. Plain RTN costs Llama-3.2-1B 20% perplexity
 at W4 g128, which sets the gap GPTQ and AWQ must close.
 
-**Phase 2 finding (in progress): vanilla GPTQ breaks on Llama-3.2-1B.** With the paper's settings, GPTQ
-W4 g128 reaches WikiText-2 perplexity 34.2, three times worse than plain RTN (11.7); GPTQModel with the same
-settings and the same calibration windows also breaks (50.9). Leaving the first position of each
-calibration window out of the Hessians recovers 11.16, which points at the first token: it becomes an
-attention sink with massive activations in a few channels, and one such token per window dominates each
-Hessian. Act-order with static groups works without that change (10.78). Raising damping to 5% makes plain
-GPTQ worse (81.6), not better; not yet explained. All numbers are one calibration seed; seed variance and
-the mechanism (static group scales vs column order) are being tested next.
+**Phase 2 finding: vanilla GPTQ breaks on Llama-3.2-1B, and column order is what fixes it.**
+
+- With the paper's settings, GPTQ W4 g128 reaches WikiText-2 perplexity 34.2, three times worse than plain
+  RTN (11.7). GPTQModel with the same settings and calibration windows also breaks (50.9), so this is not
+  specific to this implementation.
+- Leaving the first position of each calibration window out of the Hessians recovers 11.16. The first
+  token of a sequence becomes an attention sink with massive activations in a few channels; one such token
+  per window is enough to wreck GPTQ in natural column order.
+- *Not* the group scales: fixing scales from the original weights without reordering still breaks (35.8).
+- Act-order (columns in decreasing Hessian diagonal, static groups) fixes it without dropping any tokens:
+  10.71 ± 0.11 over 3 calibration seeds, −8.7% vs RTN. With act-order, dropping the first token makes
+  things *worse* (11.24, about 5 standard deviations of the seed spread), so the sink token carries useful
+  information once columns are ordered.
+- Raising damping to 5% makes plain GPTQ worse (81.6), not better; not yet explained.
+- Parity: GPTQModel with matched act-order settings gives 11.09 vs 10.78 here (2.8% on WikiText-2, 6.0% on
+  C4), outside the 1% target and larger than the seed spread. A module-by-module checkpoint comparison
+  (`scripts/compare_checkpoints.py`) is localizing the difference.
 
 **Kernel (per layer shape, M = 1)**
 
@@ -178,7 +189,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | Phase | Deliverable | Done when |
 | --- | --- | --- |
 | 1 · Harness + RTN ✅ | Perplexity eval, RTN, int4 packing, `QuantLinear` (reference path), save/load | ✅ RTN orders as fp16 < g128 < per-channel; ✅ reloaded checkpoint reproduces in-memory perplexity exactly; ✅ unit tests pass; ⏳ fp16 perplexity matches a cited source and protocol |
-| 2 · GPTQ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ⏳ within 1% of GPTQModel perplexity at identical settings; ⏳ beats RTN g128; ⏳ reloaded checkpoint reproduces in-memory perplexity |
+| 2 · GPTQ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ⏳ within 1% of GPTQModel (currently 2.8%, ours lower) |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4–5 · Triton kernel | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | Matches the reference path to fp16 tolerance over all layer shapes, odd M, M = 1…256; faster than fp16 cuBLAS at M = 1 on every layer shape |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
@@ -199,7 +210,7 @@ Marlin kernel via vLLM; Llama-3.2-3B repeat. **Next project:** on-device backend
 | `quantkit/eval/` | perplexity; lm-eval-harness wrapper (Phase 6) |
 | `quantkit/model.py` | apply quantization to a HF model; save/load packed checkpoints |
 | `quantkit/env.py` | environment capture written into every result |
-| `scripts/` | `quantize_eval.py`; `reference_gptqmodel.py` (parity run); benchmark and table scripts as phases land |
+| `scripts/` | `quantize_eval.py`; `reference_gptqmodel.py` (parity run); `compare_checkpoints.py` (module-by-module diff vs a GPTQ-format checkpoint); `inspect_gptq.py` (per-module loss, Hessian lopsidedness); benchmark and table scripts as phases land |
 | `tests/` | unit tests (CPU) and GPU tests (`-m gpu`) |
 | `notebooks/` | Colab runner: clone, install, call scripts; no logic in cells |
 | `results/` | committed results JSON and plots |
