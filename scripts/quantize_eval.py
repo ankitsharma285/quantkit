@@ -28,8 +28,9 @@ from quantkit.model import load_quantized, quantize_model_rtn, save_quantized
 
 
 def make_label(args) -> str:
+    bf16 = "-bf16" if args.dtype == "bfloat16" else ""
     if args.method == "fp16":
-        return "fp16"
+        return "fp16" + bf16
     label = f"{args.method}-w{args.bits}-g{args.group_size}"
     if args.method == "gptq":
         if args.act_order:
@@ -56,7 +57,7 @@ def make_label(args) -> str:
         label += "-sym"
     if args.fake:
         label += "-fake"
-    return label
+    return label + bf16
 
 
 def main() -> None:
@@ -67,6 +68,8 @@ def main() -> None:
     ap.add_argument("--group-size", type=int, default=128, help="-1 = per-channel")
     ap.add_argument("--sym", action="store_true")
     ap.add_argument("--fake", action="store_true", help="fake-quant fp16 weights instead of packing")
+    ap.add_argument("--dtype", choices=["float16", "bfloat16"], default="float16",
+                    help="model dtype for calibration and evaluation (GPTQModel uses bfloat16)")
     # GPTQ
     ap.add_argument("--nsamples", type=int, default=128)
     ap.add_argument("--calib-dataset", choices=["c4", "wikitext2"], default="c4")
@@ -101,9 +104,11 @@ def main() -> None:
         label = f"loaded:{Path(args.load).name}"
         quant_time = 0.0
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.float16).to(device)
+        if args.dtype == "bfloat16" and args.method != "fp16" and not args.fake:
+            raise SystemExit("--dtype bfloat16 needs --fake (packed QuantLinear stores fp16 scales)")
+        model = AutoModelForCausalLM.from_pretrained(args.model, dtype=getattr(torch, args.dtype)).to(device)
         meta = {"method": args.method, "bits": args.bits, "group_size": args.group_size,
-                "sym": args.sym, "packed": not args.fake}
+                "sym": args.sym, "packed": not args.fake, "dtype": args.dtype}
         label = make_label(args)
         t0 = time.perf_counter()
         if args.method == "rtn":

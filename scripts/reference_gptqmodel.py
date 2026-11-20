@@ -44,6 +44,11 @@ def main() -> None:
     ap.add_argument("--seqlen", type=int, default=2048)
     ap.add_argument("--max-windows", type=int, default=None)
     ap.add_argument("--out", default="ckpt/ref-gptqmodel")
+    ap.add_argument("--eval-dtype", choices=["native", "float16"], default="native",
+                    help="GPTQModel loads Llama-3.2 in bfloat16; float16 casts the loaded model "
+                         "so evaluation matches quantkit")
+    ap.add_argument("--reuse", action="store_true",
+                    help="skip quantization if --out already holds a checkpoint")
     ap.add_argument("--results-dir", default="results")
     args = ap.parse_args()
 
@@ -66,16 +71,24 @@ def main() -> None:
         damp_percent=args.damp,
         true_sequential=True,
     )
-    t0 = time.perf_counter()
-    model = GPTQModel.load(args.model, cfg)
-    model.quantize(CalibrationConfig(dataset=rows, batch_size=1, sort=None))
-    quant_time = time.perf_counter() - t0
-    model.save(args.out)
-    del model
-    torch.cuda.empty_cache()
+    quant_time = 0.0
+    if args.reuse and any(Path(args.out).glob("*.safetensors")):
+        print(f"reusing checkpoint in {args.out}")
+    else:
+        t0 = time.perf_counter()
+        model = GPTQModel.load(args.model, cfg)
+        model.quantize(CalibrationConfig(dataset=rows, batch_size=1, sort=None))
+        quant_time = time.perf_counter() - t0
+        model.save(args.out)
+        del model
+        torch.cuda.empty_cache()
 
     qmodel = GPTQModel.load(args.out, device="cuda")
     hf_model = qmodel.model  # the underlying transformers module
+    if args.eval_dtype == "float16":
+        hf_model = hf_model.to(torch.float16)
+    eval_dtype = str(next(p for p in hf_model.parameters() if p.is_floating_point()).dtype)
+    print(f"evaluating in {eval_dtype}")
     label = f"ref-gptqmodel-w{args.bits}-g{args.group_size}"
     label += "-ao" if args.act_order else ("-sg" if args.static_groups else "")
     if args.damp != 0.01:
@@ -84,6 +97,8 @@ def main() -> None:
         label += f"-seed{args.calib_seed}"
     if args.nsamples != 128:
         label += f"-n{args.nsamples}"
+    if args.eval_dtype == "float16":
+        label += "-evalfp16"
 
     ppl = {}
     for ds in args.datasets:
@@ -99,7 +114,8 @@ def main() -> None:
                   "act_order": args.act_order, "static_groups": args.act_order or args.static_groups,
                   "act_group_aware": False,
                   "calib_dataset": "c4", "nsamples": args.nsamples,
-                  "calib_seqlen": args.calib_seqlen, "calib_seed": args.calib_seed},
+                  "calib_seqlen": args.calib_seqlen, "calib_seed": args.calib_seed,
+                  "eval_dtype": eval_dtype},
         "perplexity": ppl,
         "quant_seconds": round(quant_time, 2),
         "env": env_info(),

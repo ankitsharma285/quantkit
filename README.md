@@ -126,7 +126,7 @@ _Filled in as phases complete. Every cell is rebuilt from `results/*.json`._
 | GPTQ, first 4 tokens left out of H | 4 | 128 | 11.099 (+14%) | | | |
 | GPTQ, static groups (no reordering) | 4 | 128 | 35.795 | | | |
 | GPTQ, static groups, first token left out of H | 4 | 128 | 11.145 | | | |
-| **GPTQ + act-order (static groups)** | 4 | 128 | **10.780 (+11%)**; 3 seeds 10.71 ± 0.11 | 15.320 (+9%) | | GPTQModel: 11.086 / 16.241 |
+| **GPTQ + act-order (static groups)** | 4 | 128 | **10.780 (+11%)**; 3 seeds 10.71 ± 0.11 | 15.320 (+9%) | | GPTQModel (bf16): 3 seeds 11.01 ± 0.02 |
 | GPTQ + act-order, first token left out of H | 4 | 128 | 11.238 | | | |
 | AWQ | 4 | 128 | | | | llm-compressor: |
 | RTN (fake quant) | 3 | 128 | 35.041 (+259%) | 57.175 (+308%) | | – |
@@ -151,9 +151,15 @@ at W4 g128, which sets the gap GPTQ and AWQ must close.
   things *worse* (11.24, about 5 standard deviations of the seed spread), so the sink token carries useful
   information once columns are ordered.
 - Raising damping to 5% makes plain GPTQ worse (81.6), not better; not yet explained.
-- Parity: GPTQModel with matched act-order settings gives 11.09 vs 10.78 here (2.8% on WikiText-2, 6.0% on
-  C4), outside the 1% target and larger than the seed spread. A module-by-module checkpoint comparison
-  (`scripts/compare_checkpoints.py`) is localizing the difference.
+- Parity with GPTQModel (matched act-order settings, same calibration windows):
+  - GPTQModel is worse on every seed: 11.01 ± 0.02 vs 10.71 ± 0.11 here, a systematic ~3% gap.
+  - Group scales are identical in every module; integer codes agree on 75–91% of weights, with no growing
+    drift through the layers.
+  - Code agreement is not a quality measure for GPTQ: re-running quantkit with TF32 matmuls flips about as
+    many codes (15% by layer 1) yet moves perplexity by 0.1% (10.768 vs 10.780). Every rounding error feeds
+    all later columns, so one early flip changes the rest of the row.
+  - GPTQModel calibrates and evaluates Llama-3.2 in bfloat16; quantkit uses float16. Being tested as the
+    cause of the gap.
 
 **Kernel (per layer shape, M = 1)**
 
