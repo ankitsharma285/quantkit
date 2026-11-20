@@ -6,6 +6,10 @@ Examples:
     python scripts/quantize_eval.py --method rtn --group-size -1           # per-channel
     python scripts/quantize_eval.py --method rtn --bits 3 --fake           # 3-bit ablation
     python scripts/quantize_eval.py --load ckpt/rtn-g128                   # reload + eval
+    python scripts/quantize_eval.py --method gptq --save ckpt/gptq-g128
+    python scripts/quantize_eval.py --method gptq --act-order
+    python scripts/quantize_eval.py --method gptq --bits 3 --fake
+    python scripts/quantize_eval.py --method gptq --nsamples 32 --calib-dataset wikitext2
 """
 from __future__ import annotations
 
@@ -23,14 +27,46 @@ from quantkit.eval import perplexity
 from quantkit.model import load_quantized, quantize_model_rtn, save_quantized
 
 
+def make_label(args) -> str:
+    if args.method == "fp16":
+        return "fp16"
+    label = f"{args.method}-w{args.bits}-g{args.group_size}"
+    if args.method == "gptq":
+        if args.act_order:
+            label += "-ao"
+        if args.nsamples != 128:
+            label += f"-n{args.nsamples}"
+        if args.calib_dataset != "c4":
+            label += f"-cal{args.calib_dataset}"
+        if args.calib_seed != 0:
+            label += f"-seed{args.calib_seed}"
+        if args.no_true_sequential:
+            label += "-notseq"
+    if args.sym:
+        label += "-sym"
+    if args.fake:
+        label += "-fake"
+    return label
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="meta-llama/Llama-3.2-1B")
-    ap.add_argument("--method", choices=["fp16", "rtn"], default="fp16")
+    ap.add_argument("--method", choices=["fp16", "rtn", "gptq"], default="fp16")
     ap.add_argument("--bits", type=int, default=4)
     ap.add_argument("--group-size", type=int, default=128, help="-1 = per-channel")
     ap.add_argument("--sym", action="store_true")
     ap.add_argument("--fake", action="store_true", help="fake-quant fp16 weights instead of packing")
+    # GPTQ
+    ap.add_argument("--nsamples", type=int, default=128)
+    ap.add_argument("--calib-dataset", choices=["c4", "wikitext2"], default="c4")
+    ap.add_argument("--calib-seqlen", type=int, default=2048)
+    ap.add_argument("--calib-seed", type=int, default=0)
+    ap.add_argument("--blocksize", type=int, default=128)
+    ap.add_argument("--damp", type=float, default=0.01)
+    ap.add_argument("--act-order", action="store_true")
+    ap.add_argument("--no-true-sequential", action="store_true")
+    # Eval / IO
     ap.add_argument("--datasets", nargs="+", default=["wikitext2", "c4"])
     ap.add_argument("--seqlen", type=int, default=2048)
     ap.add_argument("--max-windows", type=int, default=None, help="cap windows for quick checks")
@@ -41,22 +77,40 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tok = AutoTokenizer.from_pretrained(args.model)
-    t0 = time.perf_counter()
+    extra: dict = {}
 
     if args.load:
         model = load_quantized(args.model, args.load, device)
         meta = json.loads((Path(args.load) / "quant_config.json").read_text())
         label = f"loaded:{Path(args.load).name}"
+        quant_time = 0.0
     else:
         model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.float16).to(device)
         meta = {"method": args.method, "bits": args.bits, "group_size": args.group_size,
                 "sym": args.sym, "packed": not args.fake}
+        label = make_label(args)
+        t0 = time.perf_counter()
         if args.method == "rtn":
             quantize_model_rtn(model, args.bits, args.group_size, args.sym, pack=not args.fake)
-        label = args.method if args.method == "fp16" else (
-            f"rtn-w{args.bits}-g{args.group_size}{'-sym' if args.sym else ''}{'-fake' if args.fake else ''}"
-        )
-    quant_time = time.perf_counter() - t0
+        elif args.method == "gptq":
+            from quantkit.calib import get_calib_tokens
+            from quantkit.gptq_model import quantize_model_gptq
+
+            calib = get_calib_tokens(tok, args.calib_dataset, args.nsamples, args.calib_seqlen,
+                                     args.calib_seed)
+            meta.update({
+                "calib_dataset": args.calib_dataset, "nsamples": args.nsamples,
+                "calib_seqlen": args.calib_seqlen, "calib_seed": args.calib_seed,
+                "blocksize": args.blocksize, "damp": args.damp, "act_order": args.act_order,
+                "true_sequential": not args.no_true_sequential,
+            })
+            t0 = time.perf_counter()  # time the algorithm, not the dataset download
+            extra["layer_stats"] = quantize_model_gptq(
+                model, calib, bits=args.bits, group_size=args.group_size, sym=args.sym,
+                blocksize=args.blocksize, percdamp=args.damp, act_order=args.act_order,
+                true_sequential=not args.no_true_sequential, pack=not args.fake, device=device,
+            )
+        quant_time = time.perf_counter() - t0
 
     if args.save:
         if args.fake or args.method == "fp16":
@@ -74,10 +128,11 @@ def main() -> None:
         "model": args.model,
         "quant": meta,
         "perplexity": ppl,
-        "setup_seconds": round(quant_time, 2),
+        "quant_seconds": round(quant_time, 2),
         "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 2**30, 3) if device == "cuda" else None,
         "env": env_info(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        **extra,
     }
     out = Path(args.results_dir)
     out.mkdir(parents=True, exist_ok=True)

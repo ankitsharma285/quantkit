@@ -8,7 +8,9 @@ Most quantization reimplementations stop at fake quantization (quantize, dequant
 perplexity). That shows accuracy but no speedup. This project closes the loop: packed int4 weights,
 a kernel that reads them directly, and end-to-end decode throughput and memory against fp16.
 
-**Status:** Phase 1 (harness, RTN, int4 packing) is code-complete and unit-tested; L4 numbers pending.
+**Status:** Phase 1 (harness, RTN, int4 packing) complete on the L4; citing a published fp16 baseline with
+a matching protocol is the one open item. Phase 2 (GPTQ) code-complete and unit-tested; L4 runs and the
+GPTQModel parity check pending.
 
 ## Objectives
 
@@ -41,6 +43,23 @@ how the integer codes and scales are chosen.
 | **RTN** | Round each weight to the nearest grid point, per group | None | Asymmetric/symmetric, per-channel or group-wise, 2–8 bits |
 | **GPTQ** (Frantar et al., 2022) | Quantize weight columns one at a time and spread the error onto not-yet-quantized columns using the inverse Hessian of the layer's inputs | 128 × 2048 tokens | H = 2XXᵀ accumulated per layer; 1% diagonal damping; Cholesky of H⁻¹; blocked lazy updates (block 128); optional act-order with static groups |
 | **AWQ** (Lin et al., 2023) | Protect salient weights by scaling input channels by activation magnitude before quantizing, then fold the inverse scale into the previous op | 128 × 512 tokens | Grid search over α ∈ [0, 1] (20 points) minimizing block output MSE; weight-clipping search; scales folded into RMSNorm / previous Linear |
+
+**GPTQ implementation notes.**
+
+- *Verified against the textbook algorithm.* `tests/test_gptq.py` runs a naive Optimal Brain Surgeon loop
+  (one column at a time, explicit H⁻¹ with the column removed after each step, no Cholesky, no blocking).
+  The blocked Cholesky implementation produces bit-identical codes in float64 for group sizes 32, 128,
+  256 and per-channel.
+- *True sequential.* Within each decoder layer, Linears are quantized in execution order
+  (q/k/v → o → gate/up → down), and each sub-group's Hessian is collected after the previous sub-groups
+  are already quantized. Each layer's outputs are recomputed with quantized weights before they become
+  the next layer's calibration inputs.
+- *Scales are fp16 during the search.* Group scales are rounded to fp16 before quantizing, because the
+  error feedback depends on the exact stored values.
+- *Act-order uses static groups.* Group scales are fixed from the original contiguous columns before
+  reordering, so the storage format and kernel need no per-column group index.
+- *Damping.* The paper uses 1% of the mean Hessian diagonal; GPTQModel 7.x defaults to 5%, citing a
+  massive activation on Llama's BOS token that can dominate the Hessian. Both are run.
 
 **Llama-3.2 GQA detail for AWQ.** `o_proj` scales normally fold into `v_proj`, but with grouped-query
 attention `v_proj` outputs 512 channels while `o_proj` takes 2048, so the fold is shape-incompatible.
@@ -98,12 +117,20 @@ _Filled in as phases complete. Every cell is rebuilt from `results/*.json`._
 
 | Method | Bits | Group | WikiText-2 ↓ | C4 ↓ | Avg 0-shot ↑ | Reference library |
 | --- | --- | --- | --- | --- | --- | --- |
-| fp16 | 16 | – | | | | – |
-| RTN | 4 | per-channel | | | | – |
-| RTN | 4 | 128 | | | | – |
+| fp16 | 16 | – | 9.751 | 14.012 | | – |
+| RTN | 4 | per-channel | 18.084 (+85%) | 27.622 (+97%) | | – |
+| RTN | 4 | 128 | 11.728 (+20%) | 17.439 (+24%) | | – |
 | GPTQ | 4 | 128 | | | | GPTQModel: |
+| GPTQ + act-order | 4 | 128 | | | | |
+| GPTQ, damp 0.05 | 4 | 128 | | | | |
 | AWQ | 4 | 128 | | | | llm-compressor: |
-| RTN / GPTQ / AWQ | 3 | 128 | | | | |
+| RTN (fake quant) | 3 | 128 | 35.041 (+259%) | 57.175 (+308%) | | – |
+| GPTQ (fake quant) | 3 | 128 | | | | |
+| AWQ (fake quant) | 3 | 128 | | | | |
+
+Percentages are relative to fp16. The packed W4 g128 checkpoint, saved and reloaded from disk, gives
+WikiText-2 perplexity 11.728, identical to the in-memory run. Plain RTN costs Llama-3.2-1B 20% perplexity
+at W4 g128, which sets the gap GPTQ and AWQ must close.
 
 **Kernel (per layer shape, M = 1)**
 
@@ -138,8 +165,8 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 
 | Phase | Deliverable | Done when |
 | --- | --- | --- |
-| 1 · Harness + RTN | Perplexity eval, RTN, int4 packing, `QuantLinear` (reference path), save/load | fp16 perplexity matches a cited source and protocol; RTN orders as fp16 < g128 < per-channel; reloaded checkpoint reproduces in-memory perplexity exactly; unit tests pass |
-| 2 · GPTQ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | Within 1% of GPTQModel perplexity at identical settings; beats RTN g128 |
+| 1 · Harness + RTN ✅ | Perplexity eval, RTN, int4 packing, `QuantLinear` (reference path), save/load | ✅ RTN orders as fp16 < g128 < per-channel; ✅ reloaded checkpoint reproduces in-memory perplexity exactly; ✅ unit tests pass; ⏳ fp16 perplexity matches a cited source and protocol |
+| 2 · GPTQ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ⏳ within 1% of GPTQModel perplexity at identical settings; ⏳ beats RTN g128; ⏳ reloaded checkpoint reproduces in-memory perplexity |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4–5 · Triton kernel | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | Matches the reference path to fp16 tolerance over all layer shapes, odd M, M = 1…256; faster than fp16 cuBLAS at M = 1 on every layer shape |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
@@ -153,13 +180,14 @@ Marlin kernel via vLLM; Llama-3.2-3B repeat. **Next project:** on-device backend
 
 | Path | What it holds |
 | --- | --- |
-| `quantkit/quant/` | `pack.py` (int4 format), `rtn.py` (shared quantizer), `qlinear.py` (drop-in Linear); `gptq.py`, `awq.py` (Phases 2–3) |
-| `quantkit/calib/` | calibration data loading and per-layer input capture (Phase 2) |
+| `quantkit/quant/` | `pack.py` (int4 format), `rtn.py` (shared quantizer), `qlinear.py` (drop-in Linear), `gptq.py` (Hessian + blocked GPTQ for one matrix); `awq.py` (Phase 3) |
+| `quantkit/calib/` | calibration sampling (C4, WikiText-2 train) and layer-0 input capture |
+| `quantkit/gptq_model.py` | layer-by-layer, true-sequential GPTQ over a HF decoder |
 | `quantkit/kernels/` | Triton W4A16 kernels, correctness tests, benchmarks (Phases 4–5) |
 | `quantkit/eval/` | perplexity; lm-eval-harness wrapper (Phase 6) |
 | `quantkit/model.py` | apply quantization to a HF model; save/load packed checkpoints |
 | `quantkit/env.py` | environment capture written into every result |
-| `scripts/` | `quantize_eval.py`; benchmark and table scripts as phases land |
+| `scripts/` | `quantize_eval.py`; `reference_gptqmodel.py` (parity run); benchmark and table scripts as phases land |
 | `tests/` | unit tests (CPU) and GPU tests (`-m gpu`) |
 | `notebooks/` | Colab runner: clone, install, call scripts; no logic in cells |
 | `results/` | committed results JSON and plots |
@@ -172,8 +200,10 @@ python -m pytest -q          # CPU unit tests
 ```
 
 On Colab: select an **L4** runtime, add `HF_TOKEN` to Colab Secrets (Llama-3.2 is gated; accept the
-license on Hugging Face first), and run `notebooks/colab_runner.ipynb`. The HF cache, checkpoints and
-results are kept on Google Drive so a disconnect does not cost a recalibration.
+license on Hugging Face first), and run `notebooks/colab_runner.ipynb`. Checkpoints and results are kept
+on Google Drive so a disconnect does not cost a recalibration. The Hugging Face cache stays on local
+disk (`/content/hf_cache`): reading a freshly written multi-GB `model.safetensors` back through the Drive
+mount corrupted it ("header too large"), and re-downloading the 1B model takes about 10 seconds.
 
 ## Reproduce
 
@@ -183,9 +213,15 @@ python scripts/quantize_eval.py --method rtn --group-size 128 --save ckpt/rtn-g1
 python scripts/quantize_eval.py --method rtn --group-size -1           # per-channel
 python scripts/quantize_eval.py --method rtn --bits 3 --fake           # 3-bit ablation
 python scripts/quantize_eval.py --load ckpt/rtn-g128                   # reload must match exactly
+
+python scripts/quantize_eval.py --method gptq --save ckpt/gptq-g128     # C4, 128 x 2048, seed 0
+python scripts/quantize_eval.py --method gptq --act-order
+python scripts/quantize_eval.py --method gptq --bits 3 --fake
+python scripts/quantize_eval.py --method gptq --damp 0.05
+python scripts/reference_gptqmodel.py                                   # GPTQModel, same calibration windows
 ```
 
-`--method gptq` and `--method awq` land with Phases 2 and 3.
+`--method awq` lands with Phase 3.
 
 ## Known limitations
 
@@ -196,6 +232,9 @@ python scripts/quantize_eval.py --load ckpt/rtn-g128                   # reload 
   model size.
 - **Shared, throttling hardware.** Colab GPUs sit on shared hosts and clocks cannot be locked; results are
   medians of interleaved repeats, and key configs are rerun to check stability.
+- **Profiler clocks.** Nsight Compute works on Colab, but by default it locks the L4 to its base clock
+  (~795 MHz, against a ~2 GHz boost). ncu is used for percent-of-peak metrics (DRAM throughput, memory vs
+  compute bound); wall-clock times come from `do_bench` at normal clocks.
 - **Perplexity is protocol-dependent.** Window length, overlap and dataset split change the numbers;
   comparisons to published values are made only against sources with a matching protocol.
 
