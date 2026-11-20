@@ -111,6 +111,12 @@ def gptq_quantize(
     else:
         perm = torch.arange(K, device=W.device)
 
+    hdiag = torch.diag(H)
+    hdiag_stats = {
+        "hdiag_max": float(hdiag.max()),
+        "hdiag_median": float(hdiag.median()),
+        "hdiag_mean": float(hdiag.mean()),
+    }
     damp = percdamp * torch.mean(torch.diag(H))
     H.diagonal().add_(damp)
     # Upper Cholesky factor of H^-1: row j holds the OBS update for column j.
@@ -170,5 +176,6 @@ def gptq_quantize(
         bits=bits,
         group_size=G,
     )
-    stats = {"loss": float(losses.sum()), "damp": float(damp), "dead_cols": int(dead.sum())}
+    stats = {"loss": float(losses.sum()), "damp": float(damp), "dead_cols": int(dead.sum()),
+             **hdiag_stats}
     return params, stats

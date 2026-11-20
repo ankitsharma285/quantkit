@@ -66,11 +66,18 @@ def quantize_model_gptq(
     pack: bool = True,
     device: str = "cuda",
     verbose: bool = True,
+    skip_first_tokens: int = 0,
 ) -> dict:
     """Quantize every decoder-layer Linear in place. Returns per-layer stats.
 
     pack=True swaps in QuantLinear (int4 only); pack=False keeps nn.Linear with
     dequantized weights (any bit width; for ablations).
+
+    skip_first_tokens=N leaves the first N positions of every calibration window
+    out of the Hessians. The first token of a sequence becomes an attention sink
+    with "massive activations" in a few hidden channels; one such token per window
+    can dominate H. The tokens still run through the layer, so later tokens
+    attend to them as usual; only the Hessian statistics skip them.
     """
     if pack and bits != 4:
         raise ValueError("packed storage is int4 only; pass pack=False for other bit widths")
@@ -88,7 +95,9 @@ def quantize_model_gptq(
             mods = {name: layer.get_submodule(name) for name in group}
             accs = {name: HessianAccumulator(m.in_features, device=device) for name, m in mods.items()}
             hooks = [
-                m.register_forward_hook(lambda mod, inp, out, a=accs[name]: a.add_batch(inp[0]))
+                m.register_forward_hook(
+                    lambda mod, inp, out, a=accs[name]: a.add_batch(inp[0][:, skip_first_tokens:])
+                )
                 for name, m in mods.items()
             ]
             for j in range(n):

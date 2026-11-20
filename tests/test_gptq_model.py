@@ -77,3 +77,14 @@ def test_act_order_runs_end_to_end():
                         act_order=True, pack=True, device="cpu", verbose=False)
     with torch.no_grad():
         assert torch.isfinite(m(_tokens(1, 32, 6)).logits).all()
+
+
+def test_skip_first_tokens_changes_hessians_but_still_quantizes():
+    calib = _tokens(4, 64, 7)
+    a, b = _tiny_llama(), _tiny_llama()
+    kw = dict(bits=4, group_size=64, blocksize=64, pack=False, device="cpu", verbose=False)
+    sa = quantize_model_gptq(a, calib, **kw)
+    sb = quantize_model_gptq(b, calib, skip_first_tokens=1, **kw)
+    name = "layers.0.self_attn.q_proj"
+    assert sa[name]["hdiag_max"] != sb[name]["hdiag_max"]
+    assert all(k in sb[name] for k in ("loss", "hdiag_max", "hdiag_median"))

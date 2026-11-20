@@ -42,6 +42,12 @@ def make_label(args) -> str:
             label += f"-seed{args.calib_seed}"
         if args.no_true_sequential:
             label += "-notseq"
+        if args.damp != 0.01:
+            label += f"-damp{args.damp:g}"
+        if args.blocksize != 128:
+            label += f"-bs{args.blocksize}"
+        if args.skip_first_tokens:
+            label += f"-skip{args.skip_first_tokens}"
     if args.sym:
         label += "-sym"
     if args.fake:
@@ -66,6 +72,8 @@ def main() -> None:
     ap.add_argument("--damp", type=float, default=0.01)
     ap.add_argument("--act-order", action="store_true")
     ap.add_argument("--no-true-sequential", action="store_true")
+    ap.add_argument("--skip-first-tokens", type=int, default=0,
+                    help="leave the first N positions of each calibration window out of the Hessians")
     # Eval / IO
     ap.add_argument("--datasets", nargs="+", default=["wikitext2", "c4"])
     ap.add_argument("--seqlen", type=int, default=2048)
@@ -103,12 +111,14 @@ def main() -> None:
                 "calib_seqlen": args.calib_seqlen, "calib_seed": args.calib_seed,
                 "blocksize": args.blocksize, "damp": args.damp, "act_order": args.act_order,
                 "true_sequential": not args.no_true_sequential,
+                "skip_first_tokens": args.skip_first_tokens,
             })
             t0 = time.perf_counter()  # time the algorithm, not the dataset download
             extra["layer_stats"] = quantize_model_gptq(
                 model, calib, bits=args.bits, group_size=args.group_size, sym=args.sym,
                 blocksize=args.blocksize, percdamp=args.damp, act_order=args.act_order,
                 true_sequential=not args.no_true_sequential, pack=not args.fake, device=device,
+                skip_first_tokens=args.skip_first_tokens,
             )
         quant_time = time.perf_counter() - t0
 
@@ -137,6 +147,8 @@ def main() -> None:
     out = Path(args.results_dir)
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{args.model.split('/')[-1]}_{label.replace(':', '_')}.json"
+    if path.exists() and not args.load:
+        print(f"note: overwriting {path}")
     path.write_text(json.dumps(record, indent=2))
     print(f"wrote {path}")
 
