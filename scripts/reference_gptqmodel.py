@@ -80,6 +80,10 @@ def main() -> None:
     label += "-ao" if args.act_order else ("-sg" if args.static_groups else "")
     if args.damp != 0.01:
         label += f"-damp{args.damp}"
+    if args.calib_seed != 0:
+        label += f"-seed{args.calib_seed}"
+    if args.nsamples != 128:
+        label += f"-n{args.nsamples}"
 
     ppl = {}
     for ds in args.datasets:

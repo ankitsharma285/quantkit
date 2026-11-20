@@ -1,6 +1,7 @@
 """Compare a quantkit checkpoint with a GPTQModel checkpoint, module by module.
 
     python scripts/compare_checkpoints.py ckpt/gptq-ao ckpt/ref-gptqmodel-ao
+    python scripts/compare_checkpoints.py ckpt/gptq-ao ckpt/gptq-ao-tf32     # two quantkit runs
 
 Both quantize the same fp16 model with the same calibration windows. Walking the
 modules in execution order shows where the two implementations start to differ:
@@ -85,6 +86,7 @@ def main() -> None:
 
     ref = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.float16).state_dict()
     a, b = load_dir(args.ours), load_dir(args.theirs)
+    b_is_quantkit = (Path(args.theirs) / "quant_config.json").exists()
 
     prefixes = [k[: -len(".qweight")] for k in a if k.endswith(".qweight")]
     order = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
@@ -107,8 +109,11 @@ def main() -> None:
             continue
         W = ref[p + ".weight"].float()
         qa, za, sa, ga = ours(a, p)
-        qb, zb, sb, gb, off = theirs(b, p, W)
-        offs.add(off)
+        if b_is_quantkit:
+            qb, zb, sb, gb = ours(b, p)
+        else:
+            qb, zb, sb, gb, off = theirs(b, p, W)
+            offs.add(off)
         Wa, Wb = dequant(qa, za, sa, ga), dequant(qb, zb, sb, gb)
         n = W.norm().item()
         codes = (qa == qb).float().mean().item()
@@ -116,7 +121,8 @@ def main() -> None:
         name = p.replace("model.layers.", "L").replace("self_attn.", "").replace("mlp.", "")
         print(f"{name:34s} {codes:11.4f} {scal:12.4f} {(Wa - Wb).norm().item() / n:12.4g} "
               f"{(Wa - W).norm().item() / n:11.4g} {(Wb - W).norm().item() / n:11.4g}")
-    print(f"\nGPTQModel zero-point offset detected: {sorted(offs)} (1 = stored as zero - 1)")
+    if offs:
+        print(f"\nGPTQModel zero-point offset detected: {sorted(offs)} (1 = stored as zero - 1)")
 
 
 if __name__ == "__main__":

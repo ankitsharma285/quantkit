@@ -50,6 +50,8 @@ def make_label(args) -> str:
             label += f"-bs{args.blocksize}"
         if args.skip_first_tokens:
             label += f"-skip{args.skip_first_tokens}"
+        if args.tf32:
+            label += "-tf32"
     if args.sym:
         label += "-sym"
     if args.fake:
@@ -76,6 +78,8 @@ def main() -> None:
     ap.add_argument("--static-groups", action="store_true",
                     help="fix group scales from the original weights (implied by --act-order)")
     ap.add_argument("--no-true-sequential", action="store_true")
+    ap.add_argument("--tf32", action="store_true",
+                    help="allow TF32 matmuls during quantization (numerical-sensitivity test)")
     ap.add_argument("--skip-first-tokens", type=int, default=0,
                     help="leave the first N positions of each calibration window out of the Hessians")
     # Eval / IO
@@ -116,9 +120,10 @@ def main() -> None:
                 "blocksize": args.blocksize, "damp": args.damp, "act_order": args.act_order,
                 "static_groups": args.static_groups or args.act_order,
                 "true_sequential": not args.no_true_sequential,
-                "skip_first_tokens": args.skip_first_tokens,
+                "skip_first_tokens": args.skip_first_tokens, "tf32": args.tf32,
             })
             t0 = time.perf_counter()  # time the algorithm, not the dataset download
+            torch.backends.cuda.matmul.allow_tf32 = args.tf32
             extra["layer_stats"] = quantize_model_gptq(
                 model, calib, bits=args.bits, group_size=args.group_size, sym=args.sym,
                 blocksize=args.blocksize, percdamp=args.damp, act_order=args.act_order,
@@ -126,6 +131,7 @@ def main() -> None:
                 true_sequential=not args.no_true_sequential, pack=not args.fake, device=device,
                 skip_first_tokens=args.skip_first_tokens,
             )
+            torch.backends.cuda.matmul.allow_tf32 = False  # evaluate at full precision
         quant_time = time.perf_counter() - t0
 
     if args.save:
