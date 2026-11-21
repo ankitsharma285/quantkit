@@ -84,11 +84,24 @@ At decode (M = 1) a Linear is a matrix-vector product: almost no compute, and th
 weights. Int4 cuts weight bytes ~3.8× (4 bits + ~0.25 bits of scales/zeros per weight), so the ceiling
 on a single layer is close to that. Two code paths:
 
-- **Small M (GEMV / split-K):** many CTAs split the K dimension so the L4's 58 SMs stay busy at M = 1;
-  partial sums are reduced at the end.
-- **Large M (tiled GEMM):** standard tiled matmul with in-register dequantization of the B tile.
+- **Small M, M ≤ 16 (split-K, `_w4a16_splitk`):** one 16-row block covers all tokens, so the grid is only
+  N / BLOCK_N programs (16 for `k/v_proj` at BLOCK_N = 32, against the L4's 58 SMs). A second grid dimension
+  splits K across SPLIT_K programs, which atomically add fp32 partial sums into the output.
+- **Larger M (tiled GEMM, `_w4a16_gemm`):** standard (M, N) tiling with the full K loop per program.
 
-The crossover M between the two, and between W4A16 and fp16, is measured rather than assumed.
+Both dequantize in registers: tile row k reads packed row k / 8, nibble k mod 8; BLOCK_K divides the group size,
+so each K-tile needs one row of scales and zeros. Dequantized weights are bit-identical to the reference path;
+outputs differ only in summation order (and, for split-K, atomic-add order, so they are not bitwise
+deterministic run to run). Block sizes, SPLIT_K, warps and pipeline stages are autotuned per (M, N, K).
+
+Correctness: `tests/test_kernel.py` runs both kernels against an fp32 reference on the exact dequantized
+weights, including N and M not divisible by the block sizes, extreme codes and zero points, and (on a GPU) the
+autotuned kernels on all Llama-3.2-1B layer shapes for M from 1 to 255. Without a GPU the tests run the real
+kernel code in Triton's CPU interpreter; deliberately broken nibble shifts, zero points and group indexing all
+make them fail.
+
+The crossover M between the two paths, and between W4A16 and fp16, is measured rather than assumed
+(`scripts/bench_kernel.py`).
 
 **End-to-end ceiling.** Llama-3.2-1B ties a 128,256 × 2048 fp16 embedding/`lm_head` (~0.5 GB), about a
 fifth of the fp16 model. Decode reads it every token, so even with perfect int4 kernels the per-token
@@ -205,7 +218,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 1 · Harness + RTN ✅ | Perplexity eval, RTN, int4 packing, `QuantLinear` (reference path), save/load | ✅ RTN orders as fp16 < g128 < per-channel; ✅ reloaded checkpoint reproduces in-memory perplexity exactly; ✅ unit tests pass; ⏳ fp16 perplexity matches a cited source and protocol |
 | 2 · GPTQ ✅ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ✗ within 1% of GPTQModel: ours 2.8% lower on 3-seed means; noise and dtype ruled out, cause unexplained |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
-| 4–5 · Triton kernel | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | Matches the reference path to fp16 tolerance over all layer shapes, odd M, M = 1…256; faster than fp16 cuBLAS at M = 1 on every layer shape |
+| 4–5 · Triton kernel 🔄 | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | Matches the reference path to fp16 tolerance over all layer shapes, odd M, M = 1…256; faster than fp16 cuBLAS at M = 1 on every layer shape |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
@@ -220,7 +233,7 @@ Marlin kernel via vLLM; Llama-3.2-3B repeat. **Next project:** on-device backend
 | `quantkit/quant/` | `pack.py` (int4 format), `rtn.py` (shared quantizer), `qlinear.py` (drop-in Linear), `gptq.py` (Hessian + blocked GPTQ for one matrix); `awq.py` (Phase 3) |
 | `quantkit/calib/` | calibration sampling (C4, WikiText-2 train) and layer-0 input capture |
 | `quantkit/gptq_model.py` | layer-by-layer, true-sequential GPTQ over a HF decoder |
-| `quantkit/kernels/` | Triton W4A16 kernels, correctness tests, benchmarks (Phases 4–5) |
+| `quantkit/kernels/` | `w4a16.py`: split-K and tiled Triton W4A16 kernels, autotuning, `w4a16_matmul` entry point |
 | `quantkit/eval/` | perplexity; lm-eval-harness wrapper (Phase 6) |
 | `quantkit/model.py` | apply quantization to a HF model; save/load packed checkpoints |
 | `quantkit/env.py` | environment capture written into every result |
@@ -259,6 +272,12 @@ python scripts/reference_gptqmodel.py                                   # GPTQMo
 ```
 
 `--method awq` lands with Phase 3.
+
+```bash
+python -m pytest -q -m gpu tests/test_kernel.py                          # kernels on real shapes (GPU)
+python scripts/quantize_eval.py --load ckpt/rtn-g128 --backend triton     # perplexity through the kernel
+python scripts/bench_kernel.py                                          # kernel vs fp16 cuBLAS, M = 1..256
+```
 
 ## Known limitations
 

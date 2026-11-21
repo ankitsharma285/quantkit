@@ -91,6 +91,8 @@ def main() -> None:
     ap.add_argument("--max-windows", type=int, default=None, help="cap windows for quick checks")
     ap.add_argument("--save", type=str, default=None, help="dir to save packed checkpoint")
     ap.add_argument("--load", type=str, default=None, help="dir of a saved packed checkpoint")
+    ap.add_argument("--backend", choices=["reference", "triton"], default="reference",
+                    help="QuantLinear forward path used for evaluation")
     ap.add_argument("--results-dir", default="results")
     args = ap.parse_args()
 
@@ -138,6 +140,16 @@ def main() -> None:
             )
             torch.backends.cuda.matmul.allow_tf32 = False  # evaluate at full precision
         quant_time = time.perf_counter() - t0
+
+    if args.backend != "reference":
+        from quantkit.quant.qlinear import set_backend
+
+        n = set_backend(model, args.backend)
+        if n == 0:
+            raise SystemExit("--backend triton needs a packed model (not --fake or fp16)")
+        label += f"+{args.backend}"
+        meta["backend"] = args.backend
+        print(f"switched {n} QuantLinear modules to the {args.backend} backend")
 
     if args.save:
         if args.fake or args.method == "fp16":

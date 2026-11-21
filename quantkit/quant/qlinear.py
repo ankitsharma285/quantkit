@@ -1,8 +1,10 @@
 """QuantLinear: drop-in nn.Linear replacement holding packed int4 weights.
 
-Day 1 forward = dequantize to the activation dtype, then F.linear. This is the
-reference ("dequant-then-matmul") path that the Triton kernel will be tested
-against on day 4; the kernel will plug in behind `backend="triton"`.
+Two forward paths:
+- "reference": dequantize the whole weight to the activation dtype, then
+  F.linear. Simple and exact; slower than fp16 because it materializes W.
+- "triton": the fused W4A16 kernel (kernels/w4a16.py) that reads packed
+  weights directly. Tested against the reference path.
 """
 from __future__ import annotations
 
@@ -80,10 +82,27 @@ class QuantLinear(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.backend == "reference":
             return F.linear(x, self.dequantize_weight(x.dtype), self.bias)
-        raise NotImplementedError(f"backend {self.backend!r} not implemented yet")
+        if self.backend == "triton":
+            from ..kernels.w4a16 import w4a16_matmul
+
+            out = w4a16_matmul(x, self.qweight, self.scales, self.qzeros, self.group_size)
+            return out if self.bias is None else out + self.bias
+        raise ValueError(f"unknown backend {self.backend!r}")
 
     def extra_repr(self) -> str:
         return (
             f"in_features={self.in_features}, out_features={self.out_features}, "
             f"bits={self.bits}, group_size={self.group_size}, backend={self.backend}"
         )
+
+
+def set_backend(model: nn.Module, backend: str) -> int:
+    """Switch every QuantLinear in `model` to `backend`; returns how many were switched."""
+    if backend not in ("reference", "triton"):
+        raise ValueError(f"unknown backend {backend!r}")
+    n = 0
+    for m in model.modules():
+        if isinstance(m, QuantLinear):
+            m.backend = backend
+            n += 1
+    return n
