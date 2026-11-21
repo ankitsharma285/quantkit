@@ -186,10 +186,27 @@ at W4 g128, which sets the gap GPTQ and AWQ must close.
 
 | Layer (N × K) | fp16 cuBLAS µs | W4A16 Triton µs | Speedup | Achieved GB/s (% of peak) |
 | --- | --- | --- | --- | --- |
-| q/o_proj 2048 × 2048 | | | | |
-| k/v_proj 512 × 2048 | | | | |
-| gate/up_proj 8192 × 2048 | | | | |
-| down_proj 2048 × 8192 | | | | |
+| q/o_proj 2048 × 2048 | 55.3 | 29.7 | 1.86× | 74 (25%); fp16: 152 (51%) |
+| k/v_proj 512 × 2048 | 19.5 | 16.4 | 1.19× | 34 (11%); fp16: 108 (36%) |
+| gate/up_proj 8192 × 2048 | 191.5 | 73.7 | 2.60× | 119 (40%); fp16: 175 (58%) |
+| down_proj 2048 × 8192 | 187.4 | 76.3 | 2.46× | 115 (38%); fp16: 179 (60%) |
+
+Speedup over fp16 cuBLAS as M grows (dispatching kernel, median of 3 interleaved rounds, L2 flushed):
+
+| Layer | M=1 | 16 | 32 | 64 | 128 | 256 |
+| --- | --- | --- | --- | --- | --- | --- |
+| q/o_proj | 1.86× | 1.71× | 1.74× | 1.10× | 1.09× | 1.01× |
+| k/v_proj | 1.19× | 1.24× | 0.92× | 0.92× | 0.83× | 0.75× |
+| gate/up_proj | 2.60× | 2.18× | 2.52× | 2.13× | 1.64× | 1.29× |
+| down_proj | 2.46× | 2.42× | 1.96× | 1.41× | 1.31× | 0.91× |
+
+Phase 4 result (first version, before tuning): correct everywhere, and faster than fp16 at decode on every shape,
+but the kernel moves weights at 11–40% of the L4's nominal 300 GB/s, while cuBLAS reaches 36–60%. Int4 moves 3.8×
+fewer bytes, so at equal bandwidth decode would be ~3.8× faster; the measured 1.2–2.6× is limited by kernel
+efficiency, not by the format. Small layers (k/v_proj, 0.55 MB of int4 weights) sit at a ~16 µs floor, which
+suggests fixed per-call costs (the split-K path launches three kernels: zero-fill, matmul, fp16 cast) rather than
+bandwidth. The fp16 reference path (dequantize all of W, then matmul) is 15–30× *slower* than fp16, so the earlier
+perplexity runs measured accuracy only.
 
 **End to end (decode, batch 1)**
 
@@ -218,7 +235,8 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 1 · Harness + RTN ✅ | Perplexity eval, RTN, int4 packing, `QuantLinear` (reference path), save/load | ✅ RTN orders as fp16 < g128 < per-channel; ✅ reloaded checkpoint reproduces in-memory perplexity exactly; ✅ unit tests pass; ⏳ fp16 perplexity matches a cited source and protocol |
 | 2 · GPTQ ✅ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ✗ within 1% of GPTQModel: ours 2.8% lower on 3-seed means; noise and dtype ruled out, cause unexplained |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
-| 4–5 · Triton kernel 🔄 | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | Matches the reference path to fp16 tolerance over all layer shapes, odd M, M = 1…256; faster than fp16 cuBLAS at M = 1 on every layer shape |
+| 4 · Triton kernel ✅ | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | ✅ matches the reference path on all layer shapes, M = 1…255 (GPU tests); ✅ whole-model perplexity through the kernel reproduces the reference (11.728); ✅ faster than fp16 cuBLAS at M = 1 on every layer shape (1.19–2.60×) |
+| 5 · Kernel tuning | Close the bandwidth gap: find the limiter with Nsight Compute, fix, re-measure | Achieved bandwidth at M = 1 within ~80% of cuBLAS's on the large shapes; small-shape floor reduced; dispatch picks the faster path per shape |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
