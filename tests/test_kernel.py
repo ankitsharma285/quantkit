@@ -49,45 +49,91 @@ GEMM = [
     dict(BLOCK_M=16, BLOCK_N=32, BLOCK_K=32),
     dict(BLOCK_M=32, BLOCK_N=64, BLOCK_K=64),
 ]
+GEMV = [
+    dict(BLOCK_N=16, BLOCK_K=64, SPLIT_K=1),
+    dict(BLOCK_N=32, BLOCK_K=128, SPLIT_K=2),
+    dict(BLOCK_N=64, BLOCK_K=32, SPLIT_K=8),
+]
+UNPACK = pytest.mark.parametrize("unpack_once", [False, True], ids=["per_nibble", "once"])
 
 
 @needs_triton
+@UNPACK
+@pytest.mark.parametrize("cfg", GEMV)
+@pytest.mark.parametrize("N", [64, 72])
+def test_gemv_matches_reference(cfg, N, unpack_once):
+    K, G = 256, 128
+    ql = _layer(N, K, G, seed=N)
+    x = torch.randn(1, K, device=DEV).half()
+    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="gemv", config=cfg,
+                       unpack_once=unpack_once)
+    _check(out, _ref(ql, x))
+
+
+@needs_triton
+@UNPACK
 @pytest.mark.parametrize("cfg", SPLITK)
 @pytest.mark.parametrize("M", [1, 3, 16])
 @pytest.mark.parametrize("N", [64, 72])  # 72: N not a multiple of BLOCK_N
-def test_splitk_matches_reference(cfg, M, N):
+def test_splitk_matches_reference(cfg, M, N, unpack_once):
     K, G = 256, 128
     ql = _layer(N, K, G, seed=M + N)
     x = torch.randn(M, K, device=DEV).half()
-    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="splitk", config=cfg)
+    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="splitk", config=cfg,
+                       unpack_once=unpack_once)
     _check(out, _ref(ql, x))
 
 
 @needs_triton
+@UNPACK
 @pytest.mark.parametrize("cfg", GEMM)
-@pytest.mark.parametrize("M", [17, 40])  # not multiples of BLOCK_M
-def test_gemm_matches_reference(cfg, M):
+@pytest.mark.parametrize("M", [1, 17, 40])  # not multiples of BLOCK_M
+def test_gemm_matches_reference(cfg, M, unpack_once):
     N, K, G = 96, 256, 64
     ql = _layer(N, K, G, seed=M)
     x = torch.randn(M, K, device=DEV).half()
-    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="gemm", config=cfg)
+    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="gemm", config=cfg,
+                       unpack_once=unpack_once)
     _check(out, _ref(ql, x))
 
 
 @needs_triton
-def test_extreme_codes_and_zero_points():
+@UNPACK
+def test_extreme_codes_and_zero_points(unpack_once):
     """All-15 codes with zero point 0 and all-0 codes with zero point 15 (sign-bit nibble)."""
     N, K, G = 32, 128, 128
     ql = _layer(N, K, G)
+    kw = dict(unpack_once=unpack_once)
     ql.qweight.fill_(-1)  # every nibble = 15
     ql.qzeros.zero_()
-    x = torch.ones(2, K, device=DEV).half()
-    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="splitk", config=SPLITK[0])
-    _check(out, _ref(ql, x))
+    x = torch.ones(1, K, device=DEV).half()
+    for path, cfg in (("splitk", SPLITK[0]), ("gemm", GEMM[0]), ("gemv", GEMV[0])):
+        _check(w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path=path, config=cfg, **kw),
+               _ref(ql, x))
     ql.qweight.zero_()
     ql.qzeros.fill_(15)
-    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path="gemm", config=GEMM[0])
-    _check(out, _ref(ql, x))
+    for path, cfg in (("splitk", SPLITK[0]), ("gemm", GEMM[0]), ("gemv", GEMV[0])):
+        _check(w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path=path, config=cfg, **kw),
+               _ref(ql, x))
+
+
+@needs_triton
+@UNPACK
+def test_distinct_nibbles_land_in_the_right_rows(unpack_once):
+    """Each of the 8 nibbles in a packed int32 holds a different code; catches reorderings
+    in the reshape-based unpacking that random data might average out."""
+    N, K, G = 32, 128, 128
+    ql = _layer(N, K, G)
+    word = sum(i << (4 * i) for i in range(8))  # nibble i holds code i
+    ql.qweight.fill_(word - (1 << 32) if word >= 1 << 31 else word)
+    ql.qzeros.zero_()
+    for row in range(8):  # one-hot activation picks out row k = row
+        x = torch.zeros(1, K, device=DEV).half()
+        x[0, row] = 1
+        for path, cfg in (("gemm", GEMM[0]), ("gemv", GEMV[0])):
+            out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, G, path=path, config=cfg,
+                               unpack_once=unpack_once)
+            torch.testing.assert_close(out.float(), (row * ql.scales[0]).float()[None, :])
 
 
 @needs_triton
@@ -124,5 +170,7 @@ LLAMA_1B = [(2048, 2048), (512, 2048), (8192, 2048), (2048, 8192)]  # (N, K)
 def test_autotuned_llama_shapes(N, K, M):
     ql = _layer(N, K, 128, seed=N + K + M)
     x = torch.randn(M, K, device=DEV).half()
-    out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, 128)
-    _check(out, _ref(ql, x))
+    for unpack_once in (False, True):
+        for path in ["auto"] + __import__("quantkit.kernels.w4a16", fromlist=["x"]).candidate_paths(M):
+            out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, 128, path=path, unpack_once=unpack_once)
+            _check(out, _ref(ql, x))

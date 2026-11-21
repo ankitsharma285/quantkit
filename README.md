@@ -236,7 +236,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 2 · GPTQ ✅ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ✗ within 1% of GPTQModel: ours 2.8% lower on 3-seed means; noise and dtype ruled out, cause unexplained |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4 · Triton kernel ✅ | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | ✅ matches the reference path on all layer shapes, M = 1…255 (GPU tests); ✅ whole-model perplexity through the kernel reproduces the reference (11.728); ✅ faster than fp16 cuBLAS at M = 1 on every layer shape (1.19–2.60×) |
-| 5 · Kernel tuning | Close the bandwidth gap: find the limiter with Nsight Compute, fix, re-measure | Achieved bandwidth at M = 1 within ~80% of cuBLAS's on the large shapes; small-shape floor reduced; dispatch picks the faster path per shape |
+| 5 · Kernel tuning 🔄 | Close the bandwidth gap: practical ceiling, Nsight Compute profile, then unpack-once tiles, a GEMM path with BLOCK_M = 16, a GEMV kernel for M = 1 and measured per-shape dispatch, each benchmarked separately | Achieved bandwidth at M = 1 within ~80% of cuBLAS's on the large shapes; small-shape floor reduced; dispatch picks the faster path per shape |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
@@ -295,6 +295,8 @@ python scripts/reference_gptqmodel.py                                   # GPTQMo
 python -m pytest -q -m gpu tests/test_kernel.py                          # kernels on real shapes (GPU)
 python scripts/quantize_eval.py --load ckpt/rtn-g128 --backend triton     # perplexity through the kernel
 python scripts/bench_kernel.py                                          # kernel vs fp16 cuBLAS, M = 1..256
+python scripts/bw_ceiling.py                                            # practical DRAM bandwidth
+ncu --profile-from-start off python scripts/profile_kernel.py --shape gate/up_proj --M 1
 ```
 
 ## Known limitations

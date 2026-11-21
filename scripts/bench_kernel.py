@@ -4,11 +4,11 @@
     python scripts/bench_kernel.py --ms 1 16 --rounds 5  # quick check
 
 For each (layer shape, M) it times, on identical weights:
-  fp16       F.linear with the dequantized fp16 weight (cuBLAS): the baseline
-  reference  QuantLinear "reference" path: dequantize all of W, then F.linear
-  splitk     Triton split-K kernel (M <= 16 only)
-  gemm       Triton tiled kernel
-  auto       what QuantLinear(backend="triton") dispatches to
+  fp16           F.linear with the dequantized fp16 weight (cuBLAS): the baseline
+  reference      dequantize all of W, then F.linear (only with --with-reference)
+  <path>/<unpack> each Triton kernel (gemm; splitk for M <= 16; gemv for M == 1),
+                 with packed weights loaded once per nibble (Phase 4) or once per tile
+  auto           measured dispatch over the paths, unpack once (QuantLinear's default)
 
 Method: triton.testing.do_bench (flushes L2 between runs, so weights come from
 DRAM as in real decode), median over `rep` ms; implementations are interleaved
@@ -58,15 +58,22 @@ def main() -> None:
     ap.add_argument("--shapes", nargs="+", default=list(SHAPES))
     ap.add_argument("--group-size", type=int, default=128)
     ap.add_argument("--rounds", type=int, default=3)
-    ap.add_argument("--rep", type=int, default=100, help="ms of timing per do_bench call")
+    ap.add_argument("--rep", type=int, default=50, help="ms of timing per do_bench call")
     ap.add_argument("--cooldown", type=float, default=1.0, help="seconds between shapes")
-    ap.add_argument("--peak-gbps", type=float, default=300.0, help="L4 DRAM peak")
+    ap.add_argument("--peak-gbps", type=float, default=300.0, help="L4 DRAM spec peak")
+    ap.add_argument("--ceiling-json", default=None,
+                    help="bw_ceiling.py output; adds %% of the measured practical ceiling")
+    ap.add_argument("--with-reference", action="store_true")
     ap.add_argument("--out", default="results/kernel/bench_l4.json")
     args = ap.parse_args()
 
     assert torch.cuda.is_available(), "needs a GPU"
     torch.backends.cuda.matmul.allow_tf32 = False
     G = args.group_size
+    ceiling = None
+    if args.ceiling_json and Path(args.ceiling_json).exists():
+        ceiling = json.loads(Path(args.ceiling_json).read_text())["practical_gbps"]
+        print(f"practical ceiling from {args.ceiling_json}: {ceiling:.1f} GB/s")
     rows = []
 
     for shape in args.shapes:
@@ -79,19 +86,19 @@ def main() -> None:
 
         for M in args.ms:
             x = torch.randn(M, K, device="cuda", dtype=torch.float16)
-            impls = {
-                "fp16": lambda: F.linear(x, W16),
-                "reference": lambda: F.linear(x, ql.dequantize_weight(torch.float16)),
-                "gemm": lambda: K4.w4a16_matmul(x, *qargs, path="gemm"),
-                "auto": lambda: K4.w4a16_matmul(x, *qargs),
-            }
-            if M <= K4.SMALL_M:
-                impls["splitk"] = lambda: K4.w4a16_matmul(x, *qargs, path="splitk")
+            impls = {"fp16": lambda: F.linear(x, W16)}
+            if args.with_reference:
+                impls["reference"] = lambda: F.linear(x, ql.dequantize_weight(torch.float16))
+            for path in K4.candidate_paths(M):
+                for once, tag in ((False, "nibble"), (True, "once")):
+                    impls[f"{path}/{tag}"] = (lambda p=path, o=once:
+                                              K4.w4a16_matmul(x, *qargs, path=p, unpack_once=o))
+            impls["auto"] = lambda: K4.w4a16_matmul(x, *qargs)
 
-            # Correctness first (this call also runs the autotuner for this M, N, K).
+            # Correctness first (these calls also autotune each kernel for this M, N, K).
             ref = F.linear(x.float(), W16.float())
-            for name in ("gemm", "auto", "splitk"):
-                if name in impls:
+            for name in impls:
+                if name not in ("fp16", "reference"):
                     err = (impls[name]().float() - ref).abs().max().item()
                     tol = 2e-3 * ref.abs().max().item() + 1e-3
                     if err > tol:
@@ -104,29 +111,35 @@ def main() -> None:
             for name, ts in times.items():
                 ms = statistics.median(ts)
                 b = bytes_moved(name, M, N, K, G)
+                gbps = b / (ms * 1e-3) / 1e9
                 rows.append({
                     "shape": shape, "N": N, "K": K, "M": M, "impl": name,
                     "us": ms * 1e3, "us_rounds": [t * 1e3 for t in ts],
-                    "gbps": b / (ms * 1e-3) / 1e9,
-                    "pct_peak_bw": 100 * b / (ms * 1e-3) / 1e9 / args.peak_gbps,
+                    "gbps": gbps,
+                    "pct_peak_bw": 100 * gbps / args.peak_gbps,
+                    "pct_practical_bw": 100 * gbps / ceiling if ceiling else None,
                     "tflops": 2 * M * N * K / (ms * 1e-3) / 1e12,
                 })
             fp = statistics.median(times["fp16"])
+            disp = next(v for k, v in K4._dispatch_cache.items() if k[:3] == (M, N, K) and k[4])
             line = "  ".join(
-                f"{n} {statistics.median(t) * 1e3:7.1f}us ({fp / statistics.median(t):4.2f}x)"
+                f"{n} {statistics.median(t) * 1e3:6.1f}us {fp / statistics.median(t):4.2f}x"
                 for n, t in times.items() if n != "fp16"
             )
-            print(f"{shape:13s} M={M:4d}  fp16 {fp * 1e3:7.1f}us  {line}", flush=True)
+            print(f"{shape:13s} M={M:4d} fp16 {fp * 1e3:6.1f}us | {line} | auto->{disp}", flush=True)
         time.sleep(args.cooldown)
 
     tuned = {
         "splitk": {str(k): str(v) for k, v in K4._splitk_tuned.cache.items()},
         "gemm": {str(k): str(v) for k, v in K4._gemm_tuned.cache.items()},
+        "gemv": {str(k): str(v) for k, v in K4._gemv_tuned.cache.items()},
+        "dispatch": {str(k): v for k, v in K4._dispatch_cache.items()},
     }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({
         "rows": rows, "autotuned_configs": tuned, "group_size": G, "peak_gbps": args.peak_gbps,
+        "practical_gbps": ceiling,
         "env": env_info(), "timestamp": datetime.now(timezone.utc).isoformat(),
     }, indent=2))
     print(f"wrote {out}")
