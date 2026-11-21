@@ -8,9 +8,8 @@ Most quantization reimplementations stop at fake quantization (quantize, dequant
 perplexity). That shows accuracy but no speedup. This project closes the loop: packed int4 weights,
 a kernel that reads them directly, and end-to-end decode throughput and memory against fp16.
 
-**Status:** Phase 1 (harness, RTN, int4 packing) complete on the L4; citing a published fp16 baseline with
-a matching protocol is the one open item. Phase 2 (GPTQ) code-complete and unit-tested; L4 runs and the
-GPTQModel parity check pending.
+**Status:** Phases 1 (harness, RTN, int4 packing) and 2 (GPTQ) complete on the L4. Open items: citing a
+published fp16 baseline with a matching protocol, and an unexplained ~3% gap to GPTQModel (see Phase 2 finding).
 
 ## Objectives
 
@@ -151,6 +150,10 @@ at W4 g128, which sets the gap GPTQ and AWQ must close.
   things *worse* (11.24, about 5 standard deviations of the seed spread), so the sink token carries useful
   information once columns are ordered.
 - Raising damping to 5% makes plain GPTQ worse (81.6), not better; not yet explained.
+- GPTQ's own objective does not predict the outcome. Summed layer-wise reconstruction loss on the calibration
+  set is *lower* for plain GPTQ (196) than for act-order (217), yet perplexity is 34.2 vs 10.8: plain GPTQ fits
+  the calibration set, sink tokens included, and fails to generalize. The most lopsided Hessians are attention
+  `q_proj` inputs (diagonal max/median up to ~230, vs under ~75 for MLP inputs).
 - Parity with GPTQModel (matched act-order settings, same calibration windows):
   - GPTQModel is worse on every seed: 11.01 ± 0.02 vs 10.71 ± 0.11 here, a systematic ~3% gap.
   - Group scales are identical in every module; integer codes agree on 75–91% of weights, with no growing
@@ -158,8 +161,13 @@ at W4 g128, which sets the gap GPTQ and AWQ must close.
   - Code agreement is not a quality measure for GPTQ: re-running quantkit with TF32 matmuls flips about as
     many codes (15% by layer 1) yet moves perplexity by 0.1% (10.768 vs 10.780). Every rounding error feeds
     all later columns, so one early flip changes the rest of the row.
-  - GPTQModel calibrates and evaluates Llama-3.2 in bfloat16; quantkit uses float16. Being tested as the
-    cause of the gap.
+  - Not dtype: GPTQModel calibrates and evaluates in bfloat16, quantkit in float16, but switching precision
+    barely moves either side. The fp16 model evaluated in bf16: 9.757 vs 9.751; quantkit GPTQ run fully in
+    bf16: 10.819 vs 10.780; GPTQModel's checkpoint evaluated in fp16: 11.031 vs 11.028.
+  - The remaining gap is unexplained. Candidates not tested: differences in how GPTQModel captures and
+    deduplicates layer inputs for the Hessians, and where damping is applied. Correctness of this
+    implementation rests on the exact match with the naive OBS reference, identical group scales, no drift
+    across layers, and a seed-tested gain over RTN.
 
 **Kernel (per layer shape, M = 1)**
 
@@ -195,7 +203,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | Phase | Deliverable | Done when |
 | --- | --- | --- |
 | 1 · Harness + RTN ✅ | Perplexity eval, RTN, int4 packing, `QuantLinear` (reference path), save/load | ✅ RTN orders as fp16 < g128 < per-channel; ✅ reloaded checkpoint reproduces in-memory perplexity exactly; ✅ unit tests pass; ⏳ fp16 perplexity matches a cited source and protocol |
-| 2 · GPTQ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ⏳ within 1% of GPTQModel (currently 2.8%, ours lower) |
+| 2 · GPTQ ✅ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ✗ within 1% of GPTQModel: ours 2.8% lower on 3-seed means; noise and dtype ruled out, cause unexplained |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4–5 · Triton kernel | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | Matches the reference path to fp16 tolerance over all layer shapes, odd M, M = 1…256; faster than fp16 cuBLAS at M = 1 on every layer shape |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
