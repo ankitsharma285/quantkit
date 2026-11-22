@@ -231,12 +231,49 @@ projection never runs alone. That is measured end to end in Phase 6.
 The `reference` path (dequantize all of W to fp16, then matmul) is 15–30× *slower* than fp16 (Phase 4
 benchmark), so Phase 1–2 perplexity runs measured accuracy only, never speed.
 
-**End to end (decode, batch 1)**
+**End to end (decode, batch 1)**: Llama-3.2-1B, GPTQ W4 g128 act-order, 128-token prompt, 256 greedy tokens,
+static KV cache (`scripts/bench_decode.py`).
 
-| Model | Weights GB | Peak mem GB | Decode tok/s | vs fp16 | vs 2.4× ceiling |
+| Config | Weights GB | Peak GB | Prefill ms | Eager tok/s | CUDA-graph tok/s | GPU ms/token | vs fp16 (graph) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| fp16 | 2.47 | 2.53 | 22.1 | 49.1 | 85.3 | 11.58 | 1.00× |
+| fp16, q/k/v + gate/up fused | 2.47 | 2.63 | 27.3 | 38.1 | 86.2 | 11.46 | 1.01× |
+| W4A16 | 1.03 | 1.11 | 41.1 | 22.0 | 154.6 | 6.36 | 1.81× |
+| **W4A16, fused** | **1.03** | **1.21** | 35.5 | 26.9 | **155.5** | **6.13** | **1.82×** |
+
+Accuracy of the fast path: WikiText-2 perplexity through the fused Triton kernels is 10.781 vs 10.780 on the
+reference path (fp16 model: 9.751). CUDA-graph and eager decoding produce identical tokens.
+
+Where the GPU time per token goes:
+
+| Config | int4 matmuls | other matmuls (cuBLAS) | attention | everything else | total |
 | --- | --- | --- | --- | --- | --- |
-| fp16 | | | | 1.00× | – |
-| W4A16 (AWQ + Triton) | | | | | |
+| fp16 | – | 9.92 ms (all linears + lm_head) | 0.34 | 1.32 | 11.58 ms |
+| W4A16, fused | 2.28 ms | 2.06 ms (fp16 lm_head) | 0.33 | 1.46 | 6.13 ms |
+
+What this shows:
+
+- *Decode is 1.8× faster with CUDA graphs, and the graph numbers are bandwidth-bound:* graph time per token is
+  within 0.1–0.3 ms of pure GPU kernel time for every config.
+- *The int4 linears are 3.4× faster than fp16 in the model* (7.86 → 2.28 ms per token), moving weights at about
+  223 GB/s; in the model, cuBLAS moves fp16 weights at about 247 GB/s, faster than the standalone L2-flushed
+  benchmark suggested.
+- *The end-to-end ceiling is lower than the 2.4× estimated earlier,* because that estimate counted weights only.
+  In the W4A16 model, the fp16 lm_head (2.06 ms, 34%) and the many small non-matmul kernels (norms, rotary
+  embeddings, residual adds, KV-cache writes, the split-K zero-fill and cast: 1.46 ms, 24%) now cost as much as
+  all the int4 matmuls. With perfect int4 kernels the limit is about 5.7 ms per token, about 2.0×.
+- *Fusing q/k/v and gate/up barely matters end to end* (+0.6% with graphs, 0.23 ms of GPU time), even though it
+  removes the slow small-layer calls: those layers were a small share of total time.
+- *Without CUDA graphs, W4A16 decode is 2.2× slower than fp16* (22.0 vs 49.1 tok/s). Eager decoding at batch 1
+  is limited by the CPU launching kernels: about 9 ms of host overhead per token for fp16, about 31–39 ms for
+  W4A16, i.e. roughly 0.3 ms of Python launch cost per Triton matmul call (Triton launcher, autotuner lookup,
+  dispatch, output allocation). Eager prefill is slower for the same reason (35–41 vs 22 ms). Serving stacks
+  (vLLM, SGLang, TensorRT-LLM) decode from CUDA graphs, so the graph numbers are the relevant ones, but the
+  custom kernel is only a win there.
+
+Next steps this points to: quantize lm_head (removes up to 2 ms of the 6.1 ms), cut the small-kernel time with
+operator fusion (e.g. torch.compile; helps fp16 and W4A16 alike), and launch the Triton kernels through a cached
+compiled handle instead of the Python autotuner path to fix eager mode.
 
 Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marked, and a roofline plot.
 
@@ -260,7 +297,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4 · Triton kernel ✅ | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | ✅ matches the reference path on all layer shapes, M = 1…255 (GPU tests); ✅ whole-model perplexity through the kernel reproduces the reference (11.728); ✅ faster than fp16 cuBLAS at M = 1 on every layer shape (1.19–2.60×) |
 | 5 · Kernel tuning ✅ | Practical ceiling, Nsight Compute profile, then unpack-once tiles, a GEMM path with BLOCK_M = 16, a GEMV kernel for M = 1 and measured per-shape dispatch, each benchmarked separately | ✅ achieved bandwidth at M = 1 is 81–87% of cuBLAS's on the large shapes (3.1–3.3× speedup); ✗ small-shape floor barely moved (k/v_proj 16.4 → 15.4 µs; fixed per-call cost, see above); ✅ dispatch measures paths and unpack variants per shape; ✅ GPU tests and whole-model perplexity through the kernel (11.728) still pass |
-| 6 · End to end 🔄 | Swap all Linears; fuse q/k/v and gate/up; decode tok/s (eager, CUDA graph) and GPU time per token, memory; lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
+| 6 · End to end 🔄 | Swap all Linears; fuse q/k/v and gate/up; decode tok/s (eager, CUDA graph) and GPU time per token, memory; lm-eval tasks; ablations | ✅ decode 1.82× faster with CUDA graphs (155.5 vs 85.3 tok/s), weights 2.47 → 1.03 GB; ✅ perplexity through the fused kernels 10.781 vs 10.780; ✗ eager decode 2.2× slower (launch overhead); ⏳ lm-eval tasks; ⏳ ablations |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
 **Stretch (only if Phases 1–7 are done):** FP8 W8A8 on the L4 (sm_89 supports it); comparison against the
