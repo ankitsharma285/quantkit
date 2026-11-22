@@ -271,6 +271,12 @@ What this shows:
   (vLLM, SGLang, TensorRT-LLM) decode from CUDA graphs, so the graph numbers are the relevant ones, but the
   custom kernel is only a win there.
 
+**Quantized lm_head** (RTN int4, untied from the fp16 embedding; `--quantize-lm-head`, decode config `+lmh`):
+_results pending_.
+
+**Downstream accuracy** (lm-evaluation-harness, zero-shot; acc_norm, WinoGrande acc; `scripts/eval_tasks.py`):
+_results pending_.
+
 Next steps this points to: quantize lm_head (removes up to 2 ms of the 6.1 ms), cut the small-kernel time with
 operator fusion (e.g. torch.compile; helps fp16 and W4A16 alike), and launch the Triton kernels through a cached
 compiled handle instead of the Python autotuner path to fix eager mode.
@@ -316,6 +322,7 @@ Marlin kernel via vLLM; Llama-3.2-3B repeat. **Next project:** on-device backend
 | `quantkit/model.py` | apply quantization to a HF model; save/load packed checkpoints |
 | `quantkit/fuse.py` | runtime fusion of q/k/v and gate/up into single matmuls (fp16 or int4) |
 | `quantkit/decode.py` | greedy batch-1 decoding with a static KV cache, eager or replayed from a CUDA graph |
+| `quantkit/runtime.py` | build a model from a config string (`fp16`, `w4:<ckpt>`, `+fuse`, `+lmh`) for the benchmarks |
 | `quantkit/env.py` | environment capture written into every result |
 | `scripts/` | `quantize_eval.py`; `reference_gptqmodel.py` (parity run); `compare_checkpoints.py` (module-by-module diff vs a GPTQ-format checkpoint); `inspect_gptq.py` (per-module loss, Hessian lopsidedness); benchmark and table scripts as phases land |
 | `tests/` | unit tests (CPU) and GPU tests (`-m gpu`) |
@@ -362,6 +369,8 @@ ncu --profile-from-start off python scripts/profile_kernel.py --shape gate/up_pr
 
 python scripts/quantize_eval.py --load ckpt/gptq-ao-g128 --backend triton --fuse    # fused fast path, accuracy
 python scripts/bench_decode.py --configs fp16 fp16+fuse w4:ckpt/gptq-ao-g128 w4+fuse:ckpt/gptq-ao-g128
+python scripts/quantize_eval.py --load ckpt/gptq-ao-g128 --quantize-lm-head --backend triton   # int4 lm_head
+python scripts/eval_tasks.py --configs fp16 w4:ckpt/gptq-ao-g128 w4+lmh:ckpt/gptq-ao-g128       # lm-eval tasks
 ```
 
 ## Known limitations

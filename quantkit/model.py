@@ -57,6 +57,42 @@ def quantize_model_rtn(
     return model
 
 
+def _untie(model: nn.Module) -> None:
+    """Stop HF from re-tying lm_head to the input embedding (Llama-3.2-1B ties them)."""
+    model.config.tie_word_embeddings = False
+    text_cfg = getattr(model.config, "get_text_config", None)
+    if callable(text_cfg):
+        text_cfg().tie_word_embeddings = False
+
+
+@torch.no_grad()
+def quantize_lm_head(model: nn.Module, bits: int = 4, group_size: int = 128, sym: bool = False) -> nn.Module:
+    """RTN-quantize the output projection, in place, untying it from the input embedding.
+
+    The embedding stays fp16: a decode step reads one row of it, while lm_head
+    reads the whole 128256 x 2048 matrix every token. Total stored weights grow
+    (the matrix now exists twice: fp16 embedding + int4 lm_head), but bytes read
+    per token fall. int4 is packed into QuantLinear; other widths are
+    fake-quantized into a separate fp16 matrix (accuracy ablations only).
+    """
+    lin = model.lm_head
+    if not isinstance(lin, nn.Linear):
+        raise TypeError(f"lm_head is {type(lin).__name__}, already quantized?")
+    _untie(model)
+    w = lin.weight.data
+    if bits == 4:
+        p = quantize_rtn(w, bits, group_size, sym)
+        model.lm_head = QuantLinear.from_params(p, lin.bias, dtype=w.dtype)
+    else:
+        new = nn.Linear(lin.in_features, lin.out_features, bias=lin.bias is not None,
+                        device=w.device, dtype=w.dtype)
+        new.weight.data.copy_(fake_quantize(w, bits, group_size, sym))
+        if lin.bias is not None:
+            new.bias.data.copy_(lin.bias.data)
+        model.lm_head = new
+    return model
+
+
 def save_quantized(model: nn.Module, out_dir: str | Path, meta: dict) -> None:
     """Save the full state dict (packed int4 layers + fp16 rest) and a config."""
     out = Path(out_dir)
@@ -81,8 +117,13 @@ def load_quantized(model_id: str, out_dir: str | Path, device: str = "cuda") -> 
     out = Path(out_dir)
     cfg = json.loads((out / QUANT_CONFIG).read_text())
     model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.float16).to(device)
+    lm_head_quantized = "lm_head" in cfg["quantized_layers"]
+    if lm_head_quantized:
+        _untie(model)
     for name in cfg["quantized_layers"]:
         lin = model.get_submodule(name)
+        if name == "lm_head":  # replace the tied module with an independent one before loading
+            lin = nn.Linear(lin.in_features, lin.out_features, bias=lin.bias is not None)
         _set_module(
             model,
             name,
@@ -93,5 +134,6 @@ def load_quantized(model_id: str, out_dir: str | Path, device: str = "cuda") -> 
         )
     state = load_file(out / QUANT_WEIGHTS, device=device)
     model.load_state_dict(state, strict=True)
-    model.tie_weights()
+    if not lm_head_quantized:
+        model.tie_weights()
     return model.eval()

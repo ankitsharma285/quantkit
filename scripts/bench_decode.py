@@ -2,8 +2,10 @@
 
     python scripts/bench_decode.py --configs fp16 fp16+fuse w4:ckpt/gptq-ao w4+fuse:ckpt/gptq-ao
 
-Each config is "fp16" or "w4:<packed checkpoint dir>", optionally with "+fuse"
-(q/k/v and gate/up fused). For each config it measures:
+Each config is "fp16" or "w4:<packed checkpoint dir>", with optional "+fuse"
+(q/k/v and gate/up fused) and "+lmh" (lm_head RTN-quantized to int4 g128 and
+untied from the fp16 embedding), e.g. "w4+lmh+fuse:ckpt/gptq-ao". For each
+config it measures:
 
   prefill ms      first token for a --prompt-len prompt (time to first token)
   eager tok/s     decode with normal kernel launches (Python + launch overhead included)
@@ -29,29 +31,10 @@ from pathlib import Path
 
 import torch
 from torch.autograd import DeviceType
-from transformers import AutoModelForCausalLM
 
 from quantkit.decode import Decoder
 from quantkit.env import env_info
-from quantkit.fuse import fuse_projections
-from quantkit.model import load_quantized
-from quantkit.quant.qlinear import set_backend
-
-
-def load(config: str, model_id: str):
-    base, _, path = config.partition(":")
-    fuse = base.endswith("+fuse")
-    kind = base.removesuffix("+fuse")
-    if kind == "fp16":
-        model = AutoModelForCausalLM.from_pretrained(model_id, dtype=torch.float16).cuda().eval()
-    elif kind == "w4":
-        model = load_quantized(model_id, path, "cuda")
-        set_backend(model, "triton")
-    else:
-        raise ValueError(f"bad config {config!r}")
-    if fuse:
-        fuse_projections(model)
-    return model
+from quantkit.runtime import load_config, short_name
 
 
 def nbytes(model) -> int:
@@ -84,9 +67,9 @@ def timed(fn) -> float:
 
 
 def run_config(config, args, prompt) -> dict:
-    model = load(config, args.model)
+    model = load_config(config, args.model)
     d = Decoder(model, args.prompt_len, args.new_tokens)
-    res = {"config": config, "weights_gb": nbytes(model) / 1e9}
+    res = {"config": short_name(config), "config_full": config, "weights_gb": nbytes(model) / 1e9}
 
     # Warm-up: compiles and autotunes the Triton kernels for M = prompt_len and M = 1.
     for _ in range(2):
@@ -153,7 +136,7 @@ def run_config(config, args, prompt) -> dict:
     except Exception as ex:  # report and carry on; eager and GPU-time numbers still stand
         res["graph_error"] = f"{type(ex).__name__}: {str(ex)[:300]}"
 
-    del d, model
+    d = model = None  # free GPU memory before the next config
     gc.collect()
     torch.cuda.empty_cache()
     return res
@@ -179,7 +162,7 @@ def main() -> None:
         g = f"{r['graph_tok_s']:6.1f}" if "graph_tok_s" in r else "  fail"
         bd = "  ".join(f"{k} {v:.2f}" for k, v in r["gpu_ms_breakdown"].items())
         gpu = f"{r['gpu_ms_per_token']:.2f}" if r["gpu_ms_per_token"] is not None else "n/a"
-        print(f"{c:28s} weights {r['weights_gb']:.2f} GB  peak {r['peak_gb']:.2f} GB  prefill {r['prefill_ms']:6.1f} ms"
+        print(f"{short_name(c):28s} weights {r['weights_gb']:.2f} GB  peak {r['peak_gb']:.2f} GB  prefill {r['prefill_ms']:6.1f} ms"
               f"  eager {r['eager_tok_s']:6.1f} tok/s  graph {g} tok/s  gpu {gpu} ms/tok"
               f"  [{bd}]", flush=True)
         if "graph_error" in r:

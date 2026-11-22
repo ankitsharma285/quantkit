@@ -24,7 +24,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from quantkit.env import env_info
 from quantkit.eval import perplexity
-from quantkit.model import load_quantized, quantize_model_rtn, save_quantized
+from quantkit.model import load_quantized, quantize_lm_head, quantize_model_rtn, save_quantized
 
 
 def make_label(args) -> str:
@@ -94,6 +94,11 @@ def main() -> None:
     ap.add_argument("--backend", choices=["reference", "triton"], default="reference",
                     help="QuantLinear forward path used for evaluation")
     ap.add_argument("--fuse", action="store_true", help="fuse q/k/v and gate/up for evaluation")
+    ap.add_argument("--quantize-lm-head", action="store_true",
+                    help="also RTN-quantize lm_head (untied from the fp16 embedding); "
+                         "works with --method fp16 and with --load")
+    ap.add_argument("--lm-head-bits", type=int, default=4)
+    ap.add_argument("--lm-head-group-size", type=int, default=128)
     ap.add_argument("--results-dir", default="results")
     args = ap.parse_args()
 
@@ -141,6 +146,12 @@ def main() -> None:
             )
             torch.backends.cuda.matmul.allow_tf32 = False  # evaluate at full precision
         quant_time = time.perf_counter() - t0
+
+    if args.quantize_lm_head:
+        quantize_lm_head(model, args.lm_head_bits, args.lm_head_group_size, args.sym)
+        label += f"-lmh{args.lm_head_bits}g{args.lm_head_group_size}"
+        meta["lm_head"] = {"method": "rtn", "bits": args.lm_head_bits,
+                           "group_size": args.lm_head_group_size}
 
     if args.backend != "reference":
         from quantkit.quant.qlinear import set_backend

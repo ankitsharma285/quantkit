@@ -65,3 +65,51 @@ def test_static_decoder_matches_hf_generate(fuse):
     out = d.generate(prompt)
     assert torch.equal(out, ref)
     assert torch.equal(d.generate(prompt), out)  # cache reset between runs
+
+
+def test_lm_head_quantization_unties_and_round_trips(tmp_path):
+    from quantkit.model import load_quantized, quantize_lm_head, save_quantized
+    from quantkit.quant.qlinear import QuantLinear
+
+    ref = _tiny(5)
+    m = _tiny(5)
+    emb_before = m.model.embed_tokens.weight.detach().clone()
+    quantize_model_rtn(m, 4, 128, pack=True)
+    x = _ids(20, 6)
+    with torch.no_grad():
+        before = m(x).logits  # blocks quantized, lm_head still fp16
+    quantize_lm_head(m, 4, 128)
+    assert isinstance(m.lm_head, QuantLinear)
+    assert torch.equal(m.model.embed_tokens.weight, emb_before)  # embedding untouched, still fp16
+    assert m.config.tie_word_embeddings is False
+
+    with torch.no_grad():
+        out = m(x).logits
+    # lm_head's own int4 error only: small relative to the logits, but not zero.
+    rel = ((out - before).norm() / before.norm()).item()
+    assert 0 < rel < 0.2, rel
+
+    # Save and reload: lm_head must come back quantized and *not* re-tied to the embedding.
+    ref.save_pretrained(tmp_path / "base")
+    save_quantized(m, tmp_path / "q", {"method": "rtn", "bits": 4, "group_size": 128})
+    r = load_quantized(str(tmp_path / "base"), tmp_path / "q", device="cpu").float()
+    assert isinstance(r.lm_head, QuantLinear)
+    with torch.no_grad():
+        torch.testing.assert_close(r(x).logits, out, atol=2e-2, rtol=2e-2)
+    torch.testing.assert_close(r.model.embed_tokens.weight.float(), emb_before.half().float())
+
+    # Works together with fusion.
+    fuse_projections(r)
+    with torch.no_grad():
+        torch.testing.assert_close(r(x).logits, out, atol=2e-2, rtol=2e-2)
+
+
+def test_lm_head_fake_quant_other_bits_leaves_embedding_alone():
+    from quantkit.model import quantize_lm_head
+
+    m = _tiny(7)
+    emb = m.model.embed_tokens.weight.detach().clone()
+    quantize_lm_head(m, bits=8, group_size=128)
+    assert type(m.lm_head).__name__ == "Linear"
+    assert m.lm_head.weight.data_ptr() != m.model.embed_tokens.weight.data_ptr()
+    assert torch.equal(m.model.embed_tokens.weight, emb)

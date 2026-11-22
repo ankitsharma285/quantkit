@@ -72,7 +72,7 @@ def _dequant_tile(qw_ptr, s_ptr, z_ptr, k0, offs_n, N, G,
 @triton.jit
 def _w4a16_gemm(
     a_ptr, qw_ptr, s_ptr, z_ptr, c_ptr,
-    M, N, K, G,
+    M, N, K, G, M_BUCKET,
     stride_am, stride_ak, stride_qk, stride_qn, stride_sg, stride_sn, stride_cm, stride_cn,
     BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, UNPACK_ONCE: tl.constexpr,
 ):
@@ -181,7 +181,9 @@ _GEMV_CONFIGS = [
 
 _tune = functools.partial(triton.autotune, prune_configs_by={"early_config_prune": _prune},
                           do_bench=_tune_bench)
-_gemm_tuned = _tune(configs=_GEMM_CONFIGS, key=["M", "N", "K", "UNPACK_ONCE"])(_w4a16_gemm)
+# Keyed on M_BUCKET (M rounded up to a power of two above SMALL_M), not M: evaluation and
+# prefill see many distinct sequence lengths, and per-M autotuning would retune for each.
+_gemm_tuned = _tune(configs=_GEMM_CONFIGS, key=["M_BUCKET", "N", "K", "UNPACK_ONCE"])(_w4a16_gemm)
 _splitk_tuned = _tune(configs=_SPLITK_CONFIGS, key=["M", "N", "K", "UNPACK_ONCE"],
                       reset_to_zero=["c_ptr"])(_w4a16_splitk)
 _gemv_tuned = _tune(configs=_GEMV_CONFIGS, key=["N", "K", "UNPACK_ONCE"],
@@ -201,6 +203,11 @@ def _check_config(c: dict, K: int, G: int) -> None:
         raise ValueError(f"BLOCK_K={bk}, SPLIT_K={sk} must tile K={K} and divide group_size={G}")
 
 
+def m_bucket(M: int) -> int:
+    """Exact M up to SMALL_M (decode shapes), then the next power of two."""
+    return M if M <= SMALL_M else 1 << (M - 1).bit_length()
+
+
 def candidate_paths(M: int) -> list[str]:
     return ["gemm"] + (["splitk"] if M <= SMALL_M else []) + (["gemv"] if M == 1 else [])
 
@@ -217,7 +224,7 @@ def _launch(path, x2, qweight, scales, qzeros, G, unpack_once, config):
 
     if path == "gemm":
         out = torch.empty(M, N, device=x2.device, dtype=torch.float16)
-        args = (*common, out, M, N, K, G, x2.stride(0), x2.stride(1), *s_strides,
+        args = (*common, out, M, N, K, G, m_bucket(M), x2.stride(0), x2.stride(1), *s_strides,
                 out.stride(0), out.stride(1))
         if config is None:
             grid = lambda m: (triton.cdiv(M, m["BLOCK_M"]), triton.cdiv(N, m["BLOCK_N"]))  # noqa: E731
@@ -261,7 +268,7 @@ def _pick(x2, qweight, scales, qzeros, G, unpack_once) -> tuple[str, bool]:
     measured = x2.is_cuda and os.environ.get("TRITON_INTERPRET") != "1"
     if not measured:
         return ("splitk" if M <= SMALL_M else "gemm"), (True if unpack_once is None else unpack_once)
-    key = (M, N, K, G, unpack_once, x2.device.index)
+    key = (m_bucket(M), N, K, G, unpack_once, x2.device.index)
     if key not in _dispatch_cache:
         variants = (False, True) if unpack_once is None else (unpack_once,)
         times = {}
@@ -276,7 +283,8 @@ def _pick(x2, qweight, scales, qzeros, G, unpack_once) -> tuple[str, bool]:
 
 def dispatch_choice(M: int, N: int, K: int, G: int = 128, unpack_once: bool | None = None):
     """What path="auto" chose for this shape, or None if it hasn't run yet."""
-    return next((v for k, v in _dispatch_cache.items() if k[:5] == (M, N, K, G, unpack_once)), None)
+    return next((v for k, v in _dispatch_cache.items() if k[:5] == (m_bucket(M), N, K, G, unpack_once)),
+                None)
 
 
 def w4a16_matmul(
