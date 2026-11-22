@@ -8,8 +8,28 @@ Most quantization reimplementations stop at fake quantization (quantize, dequant
 perplexity). That shows accuracy but no speedup. This project closes the loop: packed int4 weights,
 a kernel that reads them directly, and end-to-end decode throughput and memory against fp16.
 
-**Status:** Phases 1 (harness, RTN, int4 packing) and 2 (GPTQ) complete on the L4. Open items: citing a
-published fp16 baseline with a matching protocol, and an unexplained ~3% gap to GPTQModel (see Phase 2 finding).
+**Status:** Phases 1, 2 and 4–6 complete on the L4; Phase 3 (AWQ) not started; Phase 7 (write-up, plots) next.
+Open items: citing a published fp16 baseline with a matching protocol, and an unexplained ~3% gap to GPTQModel
+(see the Phase 2 finding).
+
+### Results at a glance
+
+Llama-3.2-1B on one NVIDIA L4. Batch-1 greedy decode with CUDA graphs; zero-shot mean over ARC-easy,
+ARC-challenge, HellaSwag, PIQA and WinoGrande.
+
+| Model | Weights | WikiText-2 ppl ↓ | 0-shot mean ↑ | Decode tok/s ↑ |
+| --- | --- | --- | --- | --- |
+| fp16 | 2.47 GB | 9.75 | 59.7 | 85.7 |
+| RTN W4 g128 | 1.03 GB | 11.73 | 56.3 | (same kernels as below) |
+| GPTQ W4 g128, act-order | 1.03 GB | 10.78 | 58.4 | 158.6 (1.85×) |
+| GPTQ W4 g128, act-order, + int4 lm_head | 1.17 GB | 10.94 | 58.7 | **208.6 (2.43×)** |
+
+- GPTQ recovers about 60% of RTN's downstream accuracy loss (−1.3 vs −3.4 points) and half its perplexity loss.
+- Vanilla GPTQ *breaks* on this model (perplexity 34); the cause is one attention-sink token per calibration
+  window, and act-order fixes it (Phase 2).
+- The speedup comes from a fused Triton W4A16 kernel that reads packed int4 weights at 220–250 GB/s inside the
+  model, close to this GPU's measured practical bandwidth (~243 GB/s streaming read; Phases 4–6). Without CUDA graphs it is *slower* than fp16,
+  because each Triton call costs ~0.3 ms of Python launch overhead (Phase 6).
 
 ## Objectives
 
@@ -129,16 +149,18 @@ _Filled in as phases complete. Every cell is rebuilt from `results/*.json`._
 
 | Method | Bits | Group | WikiText-2 ↓ | C4 ↓ | Avg 0-shot ↑ | Reference library |
 | --- | --- | --- | --- | --- | --- | --- |
-| fp16 | 16 | – | 9.751 | 14.012 | | – |
+| fp16 | 16 | – | 9.751 | 14.012 | 59.7 | – |
 | RTN | 4 | per-channel | 18.084 (+85%) | 27.622 (+97%) | | – |
-| RTN | 4 | 128 | 11.728 (+20%) | 17.439 (+24%) | | – |
+| RTN | 4 | 128 | 11.728 (+20%) | 17.439 (+24%) | 56.3 | – |
 | GPTQ (paper defaults) | 4 | 128 | 34.171 (+250%) | 74.037 | | GPTQModel, same settings: 50.863 |
 | GPTQ, damp 0.05 | 4 | 128 | 81.593 | 130.603 | | |
 | GPTQ, first calibration token left out of H | 4 | 128 | 11.155 (+14%) | | | |
 | GPTQ, first 4 tokens left out of H | 4 | 128 | 11.099 (+14%) | | | |
 | GPTQ, static groups (no reordering) | 4 | 128 | 35.795 | | | |
 | GPTQ, static groups, first token left out of H | 4 | 128 | 11.145 | | | |
-| **GPTQ + act-order (static groups)** | 4 | 128 | **10.780 (+11%)**; 3 seeds 10.71 ± 0.11 | 15.320 (+9%) | | GPTQModel (bf16): 3 seeds 11.01 ± 0.02 |
+| **GPTQ + act-order (static groups)** | 4 | 128 | **10.780 (+11%)**; 3 seeds 10.71 ± 0.11 | 15.320 (+9%) | 58.4 | GPTQModel (bf16): 3 seeds 11.01 ± 0.02 |
+| GPTQ + act-order, + int4 lm_head (RTN g128) | 4 | 128 | 10.938 (+12%) | 15.558 (+11%) | 58.7 | |
+| GPTQ + act-order, + int4 lm_head (RTN g64) | 4 | 128 | 10.888 (+12%) | 15.518 (+11%) | | |
 | GPTQ + act-order, first token left out of H | 4 | 128 | 11.238 | | | |
 | AWQ | 4 | 128 | | | | llm-compressor: |
 | RTN (fake quant) | 3 | 128 | 35.041 (+259%) | 57.175 (+308%) | | – |
@@ -271,15 +293,48 @@ What this shows:
   (vLLM, SGLang, TensorRT-LLM) decode from CUDA graphs, so the graph numbers are the relevant ones, but the
   custom kernel is only a win there.
 
-**Quantized lm_head** (RTN int4, untied from the fp16 embedding; `--quantize-lm-head`, decode config `+lmh`):
-_results pending_.
+**Quantized lm_head** (RTN int4, untied from the fp16 embedding; `--quantize-lm-head`, decode config `+lmh`).
+Llama-3.2-1B ties lm_head to the input embedding. A decode step reads one row of the embedding but all of
+lm_head, so the embedding stays fp16 and only lm_head becomes int4: stored weights grow by 0.14 GB (the matrix
+now exists twice), bytes read per token fall by ~0.4 GB.
 
-**Downstream accuracy** (lm-evaluation-harness, zero-shot; acc_norm, WinoGrande acc; `scripts/eval_tasks.py`):
-_results pending_.
+| | WikiText-2 | C4 | Decode tok/s | GPU ms/token | Weights / peak GB |
+| --- | --- | --- | --- | --- | --- |
+| fp16 (same session) | 9.751 | 14.012 | 85.7 | 11.59 | 2.47 / 2.53 |
+| fp16, only lm_head int4 | 9.891 (+1.4%) | 14.224 (+1.5%) | | | |
+| GPTQ act-order, fused | 10.780 | 15.320 | 158.6 (1.85×) | 6.14 | 1.03 / 1.20 |
+| GPTQ act-order, fused, + int4 lm_head | 10.938 (+1.5%) | 15.558 (+1.6%) | **208.6 (2.43×)** | **4.64** | 1.17 / 1.34 |
 
-Next steps this points to: quantize lm_head (removes up to 2 ms of the 6.1 ms), cut the small-kernel time with
-operator fusion (e.g. torch.compile; helps fp16 and W4A16 alike), and launch the Triton kernels through a cached
-compiled handle instead of the Python autotuner path to fix eager mode.
+- The int4 lm_head takes ~0.55 ms instead of 2.06 ms (inferred from the per-token breakdown: int4 matmul time
+  rose from 2.28 to 2.83 ms; about 250 GB/s, since N = 128256 gives plenty of parallel work), taking decode from
+  1.85× to 2.43×. The earlier "~2.0× limit" assumed lm_head stayed fp16.
+- Its accuracy cost is ~1.5% perplexity, roughly additive on top of the body's; group size 64 cuts it to
+  1.0–1.3%. On downstream tasks it is not measurable (below).
+- The largest remaining cost is now the non-matmul kernels: 1.47 ms of 4.64 (32%; norms, rotary embeddings,
+  residual adds, KV-cache writes, split-K zero-fill and cast). Further gains come from operator fusion
+  (e.g. torch.compile), not from the matmul kernel.
+
+**Downstream accuracy** (lm-evaluation-harness 0.4, zero-shot, full test sets; acc_norm, WinoGrande acc;
+± is lm-eval's standard error; quantized models evaluated through the Triton kernels; `scripts/eval_tasks.py`):
+
+| Model | ARC-e | ARC-c | HellaSwag | PIQA | WinoGrande | Mean | Δ mean vs fp16 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| fp16 | 62.0 ± 1.0 | 36.7 ± 1.4 | 64.2 ± 0.5 | 74.8 ± 1.0 | 60.7 ± 1.4 | 59.7 | – |
+| RTN W4 g128 | 55.6 ± 1.0 | 32.3 ± 1.4 | 60.3 ± 0.5 | 72.3 ± 1.0 | 60.9 ± 1.4 | 56.3 | −3.4 |
+| GPTQ W4 g128, act-order | 60.1 ± 1.0 | 34.8 ± 1.4 | 62.6 ± 0.5 | 74.0 ± 1.0 | 60.4 ± 1.4 | 58.4 | −1.3 |
+| GPTQ + int4 lm_head | 59.8 ± 1.0 | 34.8 ± 1.4 | 62.8 ± 0.5 | 74.7 ± 1.0 | 61.2 ± 1.4 | 58.7 | −1.0 |
+
+- RTN's loss is clear on every task but WinoGrande (ARC-e −6.4, HellaSwag −3.9); GPTQ cuts the mean loss from
+  3.4 to 1.3 points, i.e. recovers ~60% of it, consistent with recovering half the perplexity loss.
+- The int4 lm_head shows no measurable downstream cost: every difference from GPTQ alone is within one
+  standard error (HellaSwag, the tightest at ±0.5, moves +0.2). Perplexity (+1.5%) is the more sensitive probe.
+- WinoGrande does not separate any of the models (60.4–61.2 ± 1.4).
+- Standard errors are per model; the models answer the same questions, so paired differences are less
+  uncertain than these intervals suggest. One evaluation run per model.
+
+Next steps this points to: cut the non-matmul kernel time with operator fusion (e.g. torch.compile; helps fp16
+and W4A16 alike), and launch the Triton kernels through a cached compiled handle instead of the Python
+autotuner path to fix eager mode.
 
 Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marked, and a roofline plot.
 
@@ -303,7 +358,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4 · Triton kernel ✅ | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | ✅ matches the reference path on all layer shapes, M = 1…255 (GPU tests); ✅ whole-model perplexity through the kernel reproduces the reference (11.728); ✅ faster than fp16 cuBLAS at M = 1 on every layer shape (1.19–2.60×) |
 | 5 · Kernel tuning ✅ | Practical ceiling, Nsight Compute profile, then unpack-once tiles, a GEMM path with BLOCK_M = 16, a GEMV kernel for M = 1 and measured per-shape dispatch, each benchmarked separately | ✅ achieved bandwidth at M = 1 is 81–87% of cuBLAS's on the large shapes (3.1–3.3× speedup); ✗ small-shape floor barely moved (k/v_proj 16.4 → 15.4 µs; fixed per-call cost, see above); ✅ dispatch measures paths and unpack variants per shape; ✅ GPU tests and whole-model perplexity through the kernel (11.728) still pass |
-| 6 · End to end 🔄 | Swap all Linears; fuse q/k/v and gate/up; decode tok/s (eager, CUDA graph) and GPU time per token, memory; lm-eval tasks; ablations | ✅ decode 1.82× faster with CUDA graphs (155.5 vs 85.3 tok/s), weights 2.47 → 1.03 GB; ✅ perplexity through the fused kernels 10.781 vs 10.780; ✗ eager decode 2.2× slower (launch overhead); ⏳ lm-eval tasks; ⏳ ablations |
+| 6 · End to end ✅ | Swap all Linears; fuse q/k/v and gate/up; int4 lm_head; decode tok/s (eager, CUDA graph) and GPU time per token, memory; lm-eval tasks | ✅ decode 1.85× faster with CUDA graphs, 2.43× with an int4 lm_head; ✅ perplexity through the fused kernels 10.781 vs 10.780; ✅ zero-shot tasks: GPTQ −1.3 points vs fp16 (RTN −3.4), int4 lm_head not measurable; ✗ eager decode 2.2× slower (launch overhead); remaining ablations (group size, calibration size and domain, layer sensitivity) not run |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
 **Stretch (only if Phases 1–7 are done):** FP8 W8A8 on the L4 (sm_89 supports it); comparison against the
