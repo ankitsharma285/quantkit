@@ -16,9 +16,11 @@ Three kernels:
 * `_w4a16_gemv` (M == 1): no tensor cores; multiply-and-sum in fp32 registers,
   avoiding the 16-row padding tl.dot needs. Split-K with atomics as above.
 
-Which one is fastest depends on the shape, so `path="auto"` measures the
-candidates on first use for each (M, N, K) and caches the winner (GPU only;
-the CPU interpreter falls back to a fixed rule).
+Which one is fastest depends on the shape, so `path="auto"` measures every
+candidate kernel in both unpack variants on first use for each (M, N, K) and
+caches the winner (GPU only; the CPU interpreter falls back to a fixed rule).
+On the L4 neither variant wins everywhere: unpack-once is up to 25% faster on
+large layers, per-nibble up to 25% faster on k/v_proj and at M = 32.
 
 Dequantization of a [BLOCK_K, BLOCK_N] tile, two variants (UNPACK_ONCE):
 * per-nibble (Phase 4): load packed row k // 8 once per k, i.e. each int32 is
@@ -190,7 +192,7 @@ _gemv_tuned = _tune(configs=_GEMV_CONFIGS, key=["N", "K", "UNPACK_ONCE"],
 
 SMALL_M = 16  # largest M the split-K kernel accepts (BLOCK_M is 16 there)
 PATHS = ("gemm", "splitk", "gemv")
-_dispatch_cache: dict[tuple, str] = {}
+_dispatch_cache: dict[tuple, tuple[str, bool]] = {}
 
 
 def _check_config(c: dict, K: int, G: int) -> None:
@@ -252,21 +254,29 @@ def _launch(path, x2, qweight, scales, qzeros, G, unpack_once, config):
     return out.to(torch.float16)
 
 
-def _pick_path(x2, qweight, scales, qzeros, G, unpack_once) -> str:
+def _pick(x2, qweight, scales, qzeros, G, unpack_once) -> tuple[str, bool]:
+    """(path, unpack_once) for this shape. unpack_once=None lets the measurement choose it."""
     M, K = x2.shape
     N = qweight.shape[1]
     measured = x2.is_cuda and os.environ.get("TRITON_INTERPRET") != "1"
     if not measured:
-        return "splitk" if M <= SMALL_M else "gemm"
+        return ("splitk" if M <= SMALL_M else "gemm"), (True if unpack_once is None else unpack_once)
     key = (M, N, K, G, unpack_once, x2.device.index)
     if key not in _dispatch_cache:
+        variants = (False, True) if unpack_once is None else (unpack_once,)
         times = {}
         for p in candidate_paths(M):
-            fn = functools.partial(_launch, p, x2, qweight, scales, qzeros, G, unpack_once, None)
-            fn()  # autotune this path for this shape
-            times[p] = do_bench(fn, warmup=5, rep=25, return_mode="median")
+            for u in variants:
+                fn = functools.partial(_launch, p, x2, qweight, scales, qzeros, G, u, None)
+                fn()  # autotune this kernel for this shape
+                times[(p, u)] = do_bench(fn, warmup=5, rep=25, return_mode="median")
         _dispatch_cache[key] = min(times, key=times.get)
     return _dispatch_cache[key]
+
+
+def dispatch_choice(M: int, N: int, K: int, G: int = 128, unpack_once: bool | None = None):
+    """What path="auto" chose for this shape, or None if it hasn't run yet."""
+    return next((v for k, v in _dispatch_cache.items() if k[:5] == (M, N, K, G, unpack_once)), None)
 
 
 def w4a16_matmul(
@@ -277,16 +287,17 @@ def w4a16_matmul(
     group_size: int,
     path: str = "auto",
     config: dict | None = None,
-    unpack_once: bool = True,
+    unpack_once: bool | None = None,
 ) -> torch.Tensor:
     """x [..., K] fp16 times the packed int4 weight -> [..., N] fp16.
 
-    path: "auto" (fastest of the candidate kernels for this shape, measured once
-          and cached; fixed rule without a GPU), "gemm", "splitk" or "gemv".
+    path: "auto" (fastest kernel for this shape, measured once and cached;
+          fixed rule without a GPU), "gemm", "splitk" or "gemv".
     config: explicit meta-parameters (BLOCK_*, SPLIT_K, num_warps, num_stages)
             that bypass autotuning; used by tests.
-    unpack_once: load each packed int32 once per tile (Phase 5) instead of once
-            per nibble (Phase 4).
+    unpack_once: load each packed int32 once per tile (Phase 5) or once per
+            nibble (Phase 4). None: chosen by measurement with path="auto",
+            True with an explicit path.
     """
     if x.dtype != torch.float16 or scales.dtype != torch.float16:
         raise TypeError("w4a16_matmul expects fp16 activations and scales")
@@ -300,6 +311,8 @@ def w4a16_matmul(
     if x2.stride(-1) != 1:
         x2 = x2.contiguous()
     if path == "auto":
-        path = _pick_path(x2, qweight, scales, qzeros, group_size, unpack_once)
+        path, unpack_once = _pick(x2, qweight, scales, qzeros, group_size, unpack_once)
+    elif unpack_once is None:
+        unpack_once = True
     out = _launch(path, x2, qweight, scales, qzeros, group_size, unpack_once, config)
     return out.reshape(*x.shape[:-1], N)

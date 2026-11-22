@@ -31,7 +31,8 @@ def main() -> None:
     ap.add_argument("--shape", choices=list(SHAPES), default="gate/up_proj")
     ap.add_argument("--M", type=int, default=1)
     ap.add_argument("--impl", choices=["fp16", "auto", *K4.PATHS], default="auto")
-    ap.add_argument("--unpack", choices=["once", "per_nibble"], default="once")
+    ap.add_argument("--unpack", choices=["auto", "once", "per_nibble"], default="auto",
+                    help="auto: let path=auto measure it (explicit paths default to once)")
     ap.add_argument("--iters", type=int, default=3)
     args = ap.parse_args()
 
@@ -40,7 +41,7 @@ def main() -> None:
     ql = QuantLinear.from_params(quantize_rtn(W, 4, 128), dtype=torch.float16).cuda()
     W16 = ql.dequantize_weight(torch.float16)
     x = torch.randn(args.M, K, device="cuda", dtype=torch.float16)
-    once = args.unpack == "once"
+    once = {"auto": None, "once": True, "per_nibble": False}[args.unpack]
 
     if args.impl == "fp16":
         fn = lambda: F.linear(x, W16)  # noqa: E731
@@ -51,8 +52,7 @@ def main() -> None:
         fn()
     torch.cuda.synchronize()
     if args.impl == "auto":
-        key = next(k for k in K4._dispatch_cache if k[:3] == (args.M, N, K) and k[4] == once)
-        print(f"auto dispatch chose: {K4._dispatch_cache[key]}")
+        print(f"auto dispatch chose: {K4.dispatch_choice(args.M, N, K, 128, once)}")
 
     torch.cuda.profiler.start()
     for _ in range(args.iters):

@@ -170,7 +170,7 @@ LLAMA_1B = [(2048, 2048), (512, 2048), (8192, 2048), (2048, 8192)]  # (N, K)
 def test_autotuned_llama_shapes(N, K, M):
     ql = _layer(N, K, 128, seed=N + K + M)
     x = torch.randn(M, K, device=DEV).half()
-    for unpack_once in (False, True):
+    for unpack_once in (None, False, True):  # None: measured dispatch picks the variant
         for path in ["auto"] + __import__("quantkit.kernels.w4a16", fromlist=["x"]).candidate_paths(M):
             out = w4a16_matmul(x, ql.qweight, ql.scales, ql.qzeros, 128, path=path, unpack_once=unpack_once)
             _check(out, _ref(ql, x))

@@ -8,7 +8,7 @@ For each (layer shape, M) it times, on identical weights:
   reference      dequantize all of W, then F.linear (only with --with-reference)
   <path>/<unpack> each Triton kernel (gemm; splitk for M <= 16; gemv for M == 1),
                  with packed weights loaded once per nibble (Phase 4) or once per tile
-  auto           measured dispatch over the paths, unpack once (QuantLinear's default)
+  auto           measured dispatch over paths and unpack variants (QuantLinear's default)
 
 Method: triton.testing.do_bench (flushes L2 between runs, so weights come from
 DRAM as in real decode), median over `rep` ms; implementations are interleaved
@@ -121,7 +121,8 @@ def main() -> None:
                     "tflops": 2 * M * N * K / (ms * 1e-3) / 1e12,
                 })
             fp = statistics.median(times["fp16"])
-            disp = next(v for k, v in K4._dispatch_cache.items() if k[:3] == (M, N, K) and k[4])
+            p, u = K4.dispatch_choice(M, N, K, G)
+            disp = f"{p}/{'once' if u else 'nibble'}"
             line = "  ".join(
                 f"{n} {statistics.median(t) * 1e3:6.1f}us {fp / statistics.median(t):4.2f}x"
                 for n, t in times.items() if n != "fp16"

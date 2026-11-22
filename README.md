@@ -184,29 +184,52 @@ at W4 g128, which sets the gap GPTQ and AWQ must close.
 
 **Kernel (per layer shape, M = 1)**
 
-| Layer (N × K) | fp16 cuBLAS µs | W4A16 Triton µs | Speedup | Achieved GB/s (% of peak) |
-| --- | --- | --- | --- | --- |
-| q/o_proj 2048 × 2048 | 55.3 | 29.7 | 1.86× | 74 (25%); fp16: 152 (51%) |
-| k/v_proj 512 × 2048 | 19.5 | 16.4 | 1.19× | 34 (11%); fp16: 108 (36%) |
-| gate/up_proj 8192 × 2048 | 191.5 | 73.7 | 2.60× | 119 (40%); fp16: 175 (58%) |
-| down_proj 2048 × 8192 | 187.4 | 76.3 | 2.46× | 115 (38%); fp16: 179 (60%) |
+Practical DRAM ceiling of this L4, measured (`scripts/bw_ceiling.py`): **243 GB/s** for a streaming read
+(81% of the 300 GB/s spec), 231 GB/s for a copy, 232 GB/s for cuBLAS on an 8192 × 8192 fp16 matrix-vector
+product. Percentages below are of the measured 243 GB/s.
 
-Speedup over fp16 cuBLAS as M grows (dispatching kernel, median of 3 interleaved rounds, L2 flushed):
+| Layer (N × K) | fp16 cuBLAS µs | W4A16, Phase 4 → 5 µs | Speedup, Phase 4 → 5 | Achieved GB/s: W4A16 / fp16 |
+| --- | --- | --- | --- | --- |
+| q/o_proj 2048 × 2048 | 54.3 | 29.7 → 24.6 | 1.83× → **2.21×** | 89 (37%) / 154 (64%) |
+| k/v_proj 512 × 2048 | 18.4 | 16.4 → 15.4 | 1.12× → **1.19×** | 36 (15%) / 114 (47%) |
+| gate/up_proj 8192 × 2048 | 192.5 | 73.7 → 57.9 | 2.61× → **3.32×** | 152 (62%) / 174 (72%) |
+| down_proj 2048 × 8192 | 187.4 | 76.3 → 60.4 | 2.46× → **3.10×** | 145 (60%) / 179 (74%) |
+
+Speedup over fp16 cuBLAS as M grows (measured dispatch, median of 3 interleaved rounds, L2 flushed):
 
 | Layer | M=1 | 16 | 32 | 64 | 128 | 256 |
 | --- | --- | --- | --- | --- | --- | --- |
-| q/o_proj | 1.86× | 1.71× | 1.74× | 1.10× | 1.09× | 1.01× |
-| k/v_proj | 1.19× | 1.24× | 0.92× | 0.92× | 0.83× | 0.75× |
-| gate/up_proj | 2.60× | 2.18× | 2.52× | 2.13× | 1.64× | 1.29× |
-| down_proj | 2.46× | 2.42× | 1.96× | 1.41× | 1.31× | 0.91× |
+| q/o_proj | 2.21× | 2.00× | 1.60× | 1.33× | 1.11× | 1.00× |
+| k/v_proj | 1.20× | 1.17× | 0.96× | 0.82× | 0.73× | 0.71× |
+| gate/up_proj | 3.32× | 3.26× | 3.32× | 2.39× | 1.87× | 1.37× |
+| down_proj | 3.10× | 2.98× | 1.69× | 1.36× | 1.30× | 0.89× |
 
-Phase 4 result (first version, before tuning): correct everywhere, and faster than fp16 at decode on every shape,
-but the kernel moves weights at 11–40% of the L4's nominal 300 GB/s, while cuBLAS reaches 36–60%. Int4 moves 3.8×
-fewer bytes, so at equal bandwidth decode would be ~3.8× faster; the measured 1.2–2.6× is limited by kernel
-efficiency, not by the format. Small layers (k/v_proj, 0.55 MB of int4 weights) sit at a ~16 µs floor, which
-suggests fixed per-call costs (the split-K path launches three kernels: zero-fill, matmul, fp16 cast) rather than
-bandwidth. The fp16 reference path (dequantize all of W, then matmul) is 15–30× *slower* than fp16, so the earlier
-perplexity runs measured accuracy only.
+(Measured before the dispatcher also chose the unpack variant. At M = 32 the per-nibble kernel was faster:
+1.75× on q/o_proj, 1.15× on k/v_proj and 1.92× on down_proj.)
+
+**Phase 4 → 5: what each change bought** (same-session ablation in `results/phase5/bench_l4_v2.json`):
+
+- *Loading each packed int32 once per tile* (instead of once per nibble) is the main win on large layers:
+  split-K at M = 1 went from 73.7 to 63.5 µs on gate/up_proj and 75.8 to 62.5 µs on down_proj; the tiled
+  kernel at M = 64 from 124.9 to 92.2 µs. It is not uniformly better: on k/v_proj the tiled kernel got slower
+  (16.4 → 21.5 µs), and at M = 32 per-nibble won on three of four shapes. The dispatcher now measures both.
+- *A tiled kernel with 16-row blocks* (single launch, direct fp16 store) is the fastest decode kernel for
+  gate/up_proj (58 µs vs 64 µs for split-K).
+- *A GEMV kernel for M = 1* (no tensor cores) wins narrowly on down_proj and k/v_proj.
+- *Measured dispatch* replaced the fixed M ≤ 16 rule, which picked a kernel up to 50% slower than the best.
+
+On the two large layers the kernel now reaches 81–87% of cuBLAS's achieved bandwidth, so decode is 3.1–3.3×
+faster against an ideal of 3.8× (int4 moves 3.8× fewer bytes).
+
+**Why small layers stay slow** (Nsight Compute, k/v_proj, M = 1, split-K): the matmul kernel itself takes
+7.0 µs at 30% of DRAM bandwidth, using 128 thread blocks on 58 SMs (17% achieved occupancy, 96 registers per
+thread). The zero-fill (1.8 µs) and fp16 cast (2.2 µs) kernels plus the gaps between launches account for the
+rest of the 15.4 µs. A 0.55 MB weight read cannot fill the GPU in one call. The standard fix is at the model
+level, not the kernel: fuse q/k/v into one matmul (N = 3072) and gate/up into one (N = 16384), so the small
+projection never runs alone. That is measured end to end in Phase 6.
+
+The `reference` path (dequantize all of W to fp16, then matmul) is 15–30× *slower* than fp16 (Phase 4
+benchmark), so Phase 1–2 perplexity runs measured accuracy only, never speed.
 
 **End to end (decode, batch 1)**
 
@@ -236,7 +259,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 2 · GPTQ ✅ | Layer-by-layer calibration capture, Hessian, blocked updates, act-order | ✅ matches a naive OBS reference exactly (unit test); ✅ beats RTN g128 (act-order, 3 seeds); ✅ reloaded checkpoint reproduces in-memory perplexity; ✗ within 1% of GPTQModel: ours 2.8% lower on 3-seed means; noise and dtype ruled out, cause unexplained |
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4 · Triton kernel ✅ | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | ✅ matches the reference path on all layer shapes, M = 1…255 (GPU tests); ✅ whole-model perplexity through the kernel reproduces the reference (11.728); ✅ faster than fp16 cuBLAS at M = 1 on every layer shape (1.19–2.60×) |
-| 5 · Kernel tuning 🔄 | Close the bandwidth gap: practical ceiling, Nsight Compute profile, then unpack-once tiles, a GEMM path with BLOCK_M = 16, a GEMV kernel for M = 1 and measured per-shape dispatch, each benchmarked separately | Achieved bandwidth at M = 1 within ~80% of cuBLAS's on the large shapes; small-shape floor reduced; dispatch picks the faster path per shape |
+| 5 · Kernel tuning ✅ | Practical ceiling, Nsight Compute profile, then unpack-once tiles, a GEMM path with BLOCK_M = 16, a GEMV kernel for M = 1 and measured per-shape dispatch, each benchmarked separately | ✅ achieved bandwidth at M = 1 is 81–87% of cuBLAS's on the large shapes (3.1–3.3× speedup); ✗ small-shape floor barely moved (k/v_proj 16.4 → 15.4 µs; fixed per-call cost, see above); ✅ dispatch measures paths and unpack variants per shape; ✅ GPU tests and whole-model perplexity through the kernel (11.728) still pass |
 | 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
