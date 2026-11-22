@@ -1,0 +1,81 @@
+{
+  "results": [
+    {
+      "config": "fp16",
+      "config_full": "fp16",
+      "weights_gb": 2.471629056,
+      "prefill_ms": 22.627328872680664,
+      "eager_ms_per_token": 21.191704963235296,
+      "eager_tok_s": 47.1882749280845,
+      "peak_gb": 2.528004608,
+      "gpu_ms_per_token": 11.585320375000158,
+      "gpu_ms_breakdown": {
+        "attention": 0.33784840624994156,
+        "other": 1.3218809375001883,
+        "other_matmul": 9.925591031250027
+      },
+      "graph_ms_per_token": 11.665252565870098,
+      "graph_tok_s": 85.72467628568754,
+      "graph_matches_eager": 1.0
+    },
+    {
+      "config": "w4+fuse:gptq-ao-g128",
+      "config_full": "w4+fuse:/content/drive/MyDrive/quantkit/ckpt/gptq-ao-g128",
+      "weights_gb": 1.034817792,
+      "prefill_ms": 36.570945739746094,
+      "eager_ms_per_token": 37.253940716911764,
+      "eager_tok_s": 26.84279785590685,
+      "peak_gb": 1.19709952,
+      "gpu_ms_per_token": 6.143663093750039,
+      "gpu_ms_breakdown": {
+        "attention": 0.33563362499995925,
+        "int4_matmul": 2.282668687499894,
+        "other": 1.4648362500001897,
+        "other_matmul": 2.0605245312499956
+      },
+      "graph_ms_per_token": 6.3062768075980395,
+      "graph_tok_s": 158.5721703169075,
+      "graph_matches_eager": 1.0
+    },
+    {
+      "config": "w4+lmh+fuse:gptq-ao-g128",
+      "config_full": "w4+lmh+fuse:/content/drive/MyDrive/quantkit/ckpt/gptq-ao-g128",
+      "weights_gb": 1.172308224,
+      "prefill_ms": 35.39209747314453,
+      "eager_ms_per_token": 37.30283394607843,
+      "eager_tok_s": 26.807614709528735,
+      "peak_gb": 1.343109632,
+      "gpu_ms_per_token": 4.635107656249723,
+      "gpu_ms_breakdown": {
+        "attention": 0.3355445937500267,
+        "int4_matmul": 2.8257504374999645,
+        "other": 1.4738126249997314
+      },
+      "graph_ms_per_token": 4.793607823988971,
+      "graph_tok_s": 208.61114148630043,
+      "graph_matches_eager": 1.0
+    }
+  ],
+  "prompt_len": 128,
+  "new_tokens": 256,
+  "repeats": 3,
+  "env": {
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "transformers": "5.22.1",
+    "triton": "3.8.0",
+    "datasets": "4.8.5",
+    "gpu": "NVIDIA L4",
+    "capability": "8.9",
+    "nvidia_smi": {
+      "driver_version": "580.82.07",
+      "clocks.sm": "2040 MHz",
+      "clocks.max.sm": "2040 MHz",
+      "clocks.mem": "6251 MHz",
+      "power.limit": "72.00 W",
+      "temperature.gpu": "61"
+    }
+  },
+  "timestamp": "2026-11-22T01:51:17.601795+00:00"
+}

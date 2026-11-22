@@ -1,0 +1,42 @@
+{
+  "results": {
+    "copy": {
+      "ms": 4.6561279296875,
+      "bytes": 1073741824,
+      "gbps": 230.6083166559526,
+      "pct_spec": 76.86943888531754
+    },
+    "read": {
+      "ms": 2.2077438831329346,
+      "bytes": 536870912,
+      "gbps": 243.17626519166012,
+      "pct_spec": 81.05875506388671
+    },
+    "gemv_fp16_8192x8192": {
+      "ms": 0.5785599946975708,
+      "bytes": 134217728,
+      "gbps": 231.9858428340855,
+      "pct_spec": 77.3286142780285
+    }
+  },
+  "practical_gbps": 243.17626519166012,
+  "spec_gbps": 300.0,
+  "env": {
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "transformers": "5.22.1",
+    "triton": "3.8.0",
+    "datasets": "4.8.5",
+    "gpu": "NVIDIA L4",
+    "capability": "8.9",
+    "nvidia_smi": {
+      "driver_version": "580.82.07",
+      "clocks.sm": "2040 MHz",
+      "clocks.max.sm": "2040 MHz",
+      "clocks.mem": "6251 MHz",
+      "power.limit": "72.00 W",
+      "temperature.gpu": "68"
+    }
+  }
+}

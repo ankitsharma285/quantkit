@@ -1,0 +1,56 @@
+{
+  "label": "ref-gptqmodel-w4-g128-ao",
+  "model": "meta-llama/Llama-3.2-1B",
+  "quant": {
+    "method": "gptqmodel",
+    "version": "7.12.2",
+    "bits": 4,
+    "group_size": 128,
+    "sym": false,
+    "damp": 0.01,
+    "act_order": true,
+    "static_groups": true,
+    "act_group_aware": false,
+    "calib_dataset": "c4",
+    "nsamples": 128,
+    "calib_seqlen": 2048,
+    "calib_seed": 0,
+    "eval_dtype": "torch.bfloat16"
+  },
+  "perplexity": {
+    "wikitext2": {
+      "dataset": "wikitext2",
+      "seqlen": 2048,
+      "windows": 141,
+      "tokens": 288627,
+      "ppl": 11.028208317498189
+    },
+    "c4": {
+      "dataset": "c4",
+      "seqlen": 2048,
+      "windows": 252,
+      "tokens": 515844,
+      "ppl": 16.238515080584868
+    }
+  },
+  "quant_seconds": 266.53,
+  "env": {
+    "python": "3.13.16",
+    "torch": "2.15.0+cu132",
+    "cuda": "13.2",
+    "transformers": "5.23.0",
+    "triton": "3.9.0",
+    "datasets": "5.2.0",
+    "gpu": "NVIDIA L4",
+    "capability": "8.9",
+    "nvidia_smi": {
+      "driver_version": "580.82.07",
+      "clocks.sm": "1065 MHz",
+      "clocks.max.sm": "2040 MHz",
+      "clocks.mem": "6251 MHz",
+      "power.limit": "72.00 W",
+      "temperature.gpu": "75"
+    }
+  },
+  "timestamp": "2026-11-20T23:52:49.487310+00:00"
+}

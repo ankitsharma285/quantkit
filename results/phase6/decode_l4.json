@@ -1,0 +1,96 @@
+{
+  "results": [
+    {
+      "config": "fp16",
+      "weights_gb": 2.471629056,
+      "prefill_ms": 22.11123275756836,
+      "eager_ms_per_token": 20.372926240808823,
+      "eager_tok_s": 49.08475042710895,
+      "peak_gb": 2.528004608,
+      "gpu_ms_per_token": 11.578180375000153,
+      "gpu_ms_breakdown": {
+        "attention": 0.3350878125000349,
+        "other": 1.3185612812500465,
+        "other_matmul": 9.92453128125007
+      },
+      "graph_ms_per_token": 11.717169309129902,
+      "graph_tok_s": 85.34484512576002,
+      "graph_matches_eager": 1.0
+    },
+    {
+      "config": "fp16+fuse",
+      "weights_gb": 2.471629056,
+      "prefill_ms": 27.324575424194336,
+      "eager_ms_per_token": 26.231851256127452,
+      "eager_tok_s": 38.121594630741576,
+      "peak_gb": 2.63299328,
+      "gpu_ms_per_token": 11.457445031250332,
+      "gpu_ms_breakdown": {
+        "attention": 0.335085062500052,
+        "other": 1.317789281250277,
+        "other_matmul": 9.804570687500004
+      },
+      "graph_ms_per_token": 11.59732306985294,
+      "graph_tok_s": 86.22679509545478,
+      "graph_matches_eager": 1.0
+    },
+    {
+      "config": "w4:/content/drive/MyDrive/quantkit/ckpt/gptq-ao-g128",
+      "weights_gb": 1.034817792,
+      "prefill_ms": 41.12015914916992,
+      "eager_ms_per_token": 45.46634880514706,
+      "eager_tok_s": 21.994288661393327,
+      "peak_gb": 1.108232704,
+      "gpu_ms_per_token": 6.360281906250621,
+      "gpu_ms_breakdown": {
+        "attention": 0.33512656250006073,
+        "int4_matmul": 2.3565871249998804,
+        "other": 1.6088799062506747,
+        "other_matmul": 2.059688312500005
+      },
+      "graph_ms_per_token": 6.469687308517157,
+      "graph_tok_s": 154.56697554509765,
+      "graph_matches_eager": 1.0
+    },
+    {
+      "config": "w4+fuse:/content/drive/MyDrive/quantkit/ckpt/gptq-ao-g128",
+      "weights_gb": 1.034817792,
+      "prefill_ms": 35.53647994995117,
+      "eager_ms_per_token": 37.190234375,
+      "eager_tok_s": 26.88877918640436,
+      "peak_gb": 1.21413888,
+      "gpu_ms_per_token": 6.133248531250149,
+      "gpu_ms_breakdown": {
+        "attention": 0.33497924999999124,
+        "int4_matmul": 2.277984218750046,
+        "other": 1.4601588437500872,
+        "other_matmul": 2.0601262187500233
+      },
+      "graph_ms_per_token": 6.430845013786764,
+      "graph_tok_s": 155.5005598573983,
+      "graph_matches_eager": 1.0
+    }
+  ],
+  "prompt_len": 128,
+  "new_tokens": 256,
+  "repeats": 3,
+  "env": {
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "transformers": "5.22.1",
+    "triton": "3.8.0",
+    "datasets": "4.8.5",
+    "gpu": "NVIDIA L4",
+    "capability": "8.9",
+    "nvidia_smi": {
+      "driver_version": "580.82.07",
+      "clocks.sm": "2040 MHz",
+      "clocks.max.sm": "2040 MHz",
+      "clocks.mem": "6251 MHz",
+      "power.limit": "72.00 W",
+      "temperature.gpu": "74"
+    }
+  },
+  "timestamp": "2026-11-22T01:04:11.324286+00:00"
+}

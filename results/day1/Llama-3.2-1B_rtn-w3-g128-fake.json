@@ -1,0 +1,49 @@
+{
+  "label": "rtn-w3-g128-fake",
+  "model": "meta-llama/Llama-3.2-1B",
+  "quant": {
+    "method": "rtn",
+    "bits": 3,
+    "group_size": 128,
+    "sym": false,
+    "packed": false,
+    "dtype": "float16"
+  },
+  "perplexity": {
+    "wikitext2": {
+      "dataset": "wikitext2",
+      "seqlen": 2048,
+      "windows": 141,
+      "tokens": 288627,
+      "ppl": 35.04144289098328
+    },
+    "c4": {
+      "dataset": "c4",
+      "seqlen": 2048,
+      "windows": 252,
+      "tokens": 515844,
+      "ppl": 57.17472451603216
+    }
+  },
+  "quant_seconds": 0.27,
+  "peak_mem_gb": 4.758,
+  "env": {
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "transformers": "5.22.1",
+    "triton": "3.8.0",
+    "datasets": "4.8.5",
+    "gpu": "NVIDIA L4",
+    "capability": "8.9",
+    "nvidia_smi": {
+      "driver_version": "580.82.07",
+      "clocks.sm": "1470 MHz",
+      "clocks.max.sm": "2040 MHz",
+      "clocks.mem": "6251 MHz",
+      "power.limit": "72.00 W",
+      "temperature.gpu": "76"
+    }
+  },
+  "timestamp": "2026-11-20T22:16:29.715839+00:00"
+}

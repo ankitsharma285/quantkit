@@ -1,0 +1,1063 @@
+{
+  "label": "gptq-w4-g128-sg-skip1",
+  "model": "meta-llama/Llama-3.2-1B",
+  "quant": {
+    "method": "gptq",
+    "bits": 4,
+    "group_size": 128,
+    "sym": false,
+    "packed": true,
+    "dtype": "float16",
+    "calib_dataset": "c4",
+    "nsamples": 128,
+    "calib_seqlen": 2048,
+    "calib_seed": 0,
+    "blocksize": 128,
+    "damp": 0.01,
+    "act_order": false,
+    "static_groups": true,
+    "true_sequential": true,
+    "skip_first_tokens": 1,
+    "tf32": false
+  },
+  "perplexity": {
+    "wikitext2": {
+      "dataset": "wikitext2",
+      "seqlen": 2048,
+      "windows": 141,
+      "tokens": 288627,
+      "ppl": 11.144943354289769
+    }
+  },
+  "quant_seconds": 246.22,
+  "peak_mem_gb": 5.918,
+  "env": {
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda": "13.0",
+    "transformers": "5.22.1",
+    "triton": "3.8.0",
+    "datasets": "4.8.5",
+    "gpu": "NVIDIA L4",
+    "capability": "8.9",
+    "nvidia_smi": {
+      "driver_version": "580.82.07",
+      "clocks.sm": "1140 MHz",
+      "clocks.max.sm": "2040 MHz",
+      "clocks.mem": "6251 MHz",
+      "power.limit": "72.00 W",
+      "temperature.gpu": "76"
+    }
+  },
+  "timestamp": "2026-11-20T23:28:17.886822+00:00",
+  "layer_stats": {
+    "layers.0.self_attn.q_proj": {
+      "loss": 1.3558619022369385,
+      "damp": 0.0010044642258435488,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.7297537326812744,
+      "hdiag_median": 0.045484405010938644,
+      "hdiag_mean": 0.1004464253783226
+    },
+    "layers.0.self_attn.k_proj": {
+      "loss": 0.6091947555541992,
+      "damp": 0.0010044642258435488,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.7297537326812744,
+      "hdiag_median": 0.045484405010938644,
+      "hdiag_mean": 0.1004464253783226
+    },
+    "layers.0.self_attn.v_proj": {
+      "loss": 0.020351052284240723,
+      "damp": 0.0010044642258435488,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.7297537326812744,
+      "hdiag_median": 0.045484405010938644,
+      "hdiag_mean": 0.1004464253783226
+    },
+    "layers.0.self_attn.o_proj": {
+      "loss": 0.0016740825958549976,
+      "damp": 1.4024139090906829e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.23570720851421356,
+      "hdiag_median": 0.00036399162490852177,
+      "hdiag_mean": 0.0014024139381945133
+    },
+    "layers.0.mlp.gate_proj": {
+      "loss": 1.3555433750152588,
+      "damp": 0.000664699706248939,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 2.241738796234131,
+      "hdiag_median": 0.056154992431402206,
+      "hdiag_mean": 0.06646997481584549
+    },
+    "layers.0.mlp.up_proj": {
+      "loss": 1.0620627403259277,
+      "damp": 0.000664699706248939,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 2.241738796234131,
+      "hdiag_median": 0.056154992431402206,
+      "hdiag_mean": 0.06646997481584549
+    },
+    "layers.0.mlp.down_proj": {
+      "loss": 0.009094269946217537,
+      "damp": 8.144393177644815e-06,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.8120640516281128,
+      "hdiag_median": 0.00034750919439829886,
+      "hdiag_mean": 0.0008144393214024603
+    },
+    "layers.1.self_attn.q_proj": {
+      "loss": 2.3611867427825928,
+      "damp": 0.0030988038051873446,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 7.69927978515625,
+      "hdiag_median": 0.1214628592133522,
+      "hdiag_mean": 0.3098803758621216
+    },
+    "layers.1.self_attn.k_proj": {
+      "loss": 1.1795207262039185,
+      "damp": 0.0030988038051873446,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 7.69927978515625,
+      "hdiag_median": 0.1214628592133522,
+      "hdiag_mean": 0.3098803758621216
+    },
+    "layers.1.self_attn.v_proj": {
+      "loss": 0.07126474380493164,
+      "damp": 0.0030988038051873446,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 7.69927978515625,
+      "hdiag_median": 0.1214628592133522,
+      "hdiag_mean": 0.3098803758621216
+    },
+    "layers.1.self_attn.o_proj": {
+      "loss": 0.004301170818507671,
+      "damp": 2.6941243049805053e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.1375775784254074,
+      "hdiag_median": 0.0016463670181110501,
+      "hdiag_mean": 0.0026941243559122086
+    },
+    "layers.1.mlp.gate_proj": {
+      "loss": 2.116764783859253,
+      "damp": 0.0008979008998721838,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.9781520366668701,
+      "hdiag_median": 0.07105835527181625,
+      "hdiag_mean": 0.08979009091854095
+    },
+    "layers.1.mlp.up_proj": {
+      "loss": 1.533255934715271,
+      "damp": 0.0008979008998721838,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.9781520366668701,
+      "hdiag_median": 0.07105835527181625,
+      "hdiag_mean": 0.08979009091854095
+    },
+    "layers.1.mlp.down_proj": {
+      "loss": 0.021266227588057518,
+      "damp": 1.7297859812970273e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 5.593325138092041,
+      "hdiag_median": 0.0006051119416952133,
+      "hdiag_mean": 0.001729785930365324
+    },
+    "layers.2.self_attn.q_proj": {
+      "loss": 4.770814895629883,
+      "damp": 0.0050195977091789246,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 21.96055030822754,
+      "hdiag_median": 0.20026057958602905,
+      "hdiag_mean": 0.5019598007202148
+    },
+    "layers.2.self_attn.k_proj": {
+      "loss": 2.284834861755371,
+      "damp": 0.0050195977091789246,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 21.96055030822754,
+      "hdiag_median": 0.20026057958602905,
+      "hdiag_mean": 0.5019598007202148
+    },
+    "layers.2.self_attn.v_proj": {
+      "loss": 0.1933979094028473,
+      "damp": 0.0050195977091789246,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 21.96055030822754,
+      "hdiag_median": 0.20026057958602905,
+      "hdiag_mean": 0.5019598007202148
+    },
+    "layers.2.self_attn.o_proj": {
+      "loss": 0.010867209173738956,
+      "damp": 6.57038763165474e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.34155702590942383,
+      "hdiag_median": 0.003972084727138281,
+      "hdiag_mean": 0.006570387631654739
+    },
+    "layers.2.mlp.gate_proj": {
+      "loss": 3.0506277084350586,
+      "damp": 0.001314087538048625,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.155003309249878,
+      "hdiag_median": 0.10165463387966156,
+      "hdiag_mean": 0.13140875101089478
+    },
+    "layers.2.mlp.up_proj": {
+      "loss": 1.9082205295562744,
+      "damp": 0.001314087538048625,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.155003309249878,
+      "hdiag_median": 0.10165463387966156,
+      "hdiag_mean": 0.13140875101089478
+    },
+    "layers.2.mlp.down_proj": {
+      "loss": 0.028309417888522148,
+      "damp": 2.0106965166633017e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.37843674421310425,
+      "hdiag_median": 0.0013953589368611574,
+      "hdiag_mean": 0.002010696567595005
+    },
+    "layers.3.self_attn.q_proj": {
+      "loss": 3.088693857192993,
+      "damp": 0.0036448966711759567,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 23.792572021484375,
+      "hdiag_median": 0.1899600625038147,
+      "hdiag_mean": 0.36448967456817627
+    },
+    "layers.3.self_attn.k_proj": {
+      "loss": 1.3888297080993652,
+      "damp": 0.0036448966711759567,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 23.792572021484375,
+      "hdiag_median": 0.1899600625038147,
+      "hdiag_mean": 0.36448967456817627
+    },
+    "layers.3.self_attn.v_proj": {
+      "loss": 0.207192063331604,
+      "damp": 0.0036448966711759567,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 23.792572021484375,
+      "hdiag_median": 0.1899600625038147,
+      "hdiag_mean": 0.36448967456817627
+    },
+    "layers.3.self_attn.o_proj": {
+      "loss": 0.01847449690103531,
+      "damp": 9.569048415869474e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.228766530752182,
+      "hdiag_median": 0.006578309461474419,
+      "hdiag_mean": 0.009569048881530762
+    },
+    "layers.3.mlp.gate_proj": {
+      "loss": 4.697964668273926,
+      "damp": 0.0016577360220253468,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.1157608032226562,
+      "hdiag_median": 0.12911291420459747,
+      "hdiag_mean": 0.16577360033988953
+    },
+    "layers.3.mlp.up_proj": {
+      "loss": 2.3582746982574463,
+      "damp": 0.0016577360220253468,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.1157608032226562,
+      "hdiag_median": 0.12911291420459747,
+      "hdiag_mean": 0.16577360033988953
+    },
+    "layers.3.mlp.down_proj": {
+      "loss": 0.03954942896962166,
+      "damp": 3.0481485737254843e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.013075590133667,
+      "hdiag_median": 0.0024391214828938246,
+      "hdiag_mean": 0.0030481487046927214
+    },
+    "layers.4.self_attn.q_proj": {
+      "loss": 3.2357287406921387,
+      "damp": 0.003950769547373056,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 16.433881759643555,
+      "hdiag_median": 0.203987717628479,
+      "hdiag_mean": 0.3950769603252411
+    },
+    "layers.4.self_attn.k_proj": {
+      "loss": 1.5669448375701904,
+      "damp": 0.003950769547373056,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 16.433881759643555,
+      "hdiag_median": 0.203987717628479,
+      "hdiag_mean": 0.3950769603252411
+    },
+    "layers.4.self_attn.v_proj": {
+      "loss": 0.20533448457717896,
+      "damp": 0.003950769547373056,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 16.433881759643555,
+      "hdiag_median": 0.203987717628479,
+      "hdiag_mean": 0.3950769603252411
+    },
+    "layers.4.self_attn.o_proj": {
+      "loss": 0.021722275763750076,
+      "damp": 0.0001382300106342882,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.35841479897499084,
+      "hdiag_median": 0.008568176068365574,
+      "hdiag_mean": 0.013823001645505428
+    },
+    "layers.4.mlp.gate_proj": {
+      "loss": 5.0433268547058105,
+      "damp": 0.0016977598425000906,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 4.151089668273926,
+      "hdiag_median": 0.12529121339321136,
+      "hdiag_mean": 0.16977599263191223
+    },
+    "layers.4.mlp.up_proj": {
+      "loss": 2.34218168258667,
+      "damp": 0.0016977598425000906,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 4.151089668273926,
+      "hdiag_median": 0.12529121339321136,
+      "hdiag_mean": 0.16977599263191223
+    },
+    "layers.4.mlp.down_proj": {
+      "loss": 0.039901863783597946,
+      "damp": 3.3228225220227614e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.1021424531936646,
+      "hdiag_median": 0.002661310601979494,
+      "hdiag_mean": 0.003322822507470846
+    },
+    "layers.5.self_attn.q_proj": {
+      "loss": 4.2574663162231445,
+      "damp": 0.005807317327708006,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 33.77780532836914,
+      "hdiag_median": 0.23440445959568024,
+      "hdiag_mean": 0.5807317495346069
+    },
+    "layers.5.self_attn.k_proj": {
+      "loss": 2.1883292198181152,
+      "damp": 0.005807317327708006,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 33.77780532836914,
+      "hdiag_median": 0.23440445959568024,
+      "hdiag_mean": 0.5807317495346069
+    },
+    "layers.5.self_attn.v_proj": {
+      "loss": 0.1916412115097046,
+      "damp": 0.005807317327708006,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 33.77780532836914,
+      "hdiag_median": 0.23440445959568024,
+      "hdiag_mean": 0.5807317495346069
+    },
+    "layers.5.self_attn.o_proj": {
+      "loss": 0.020588815212249756,
+      "damp": 0.00017267857037950307,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.5569449663162231,
+      "hdiag_median": 0.009547478519380093,
+      "hdiag_mean": 0.017267856746912003
+    },
+    "layers.5.mlp.gate_proj": {
+      "loss": 4.568763256072998,
+      "damp": 0.0018394201761111617,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 6.5466532707214355,
+      "hdiag_median": 0.1313336044549942,
+      "hdiag_mean": 0.1839420199394226
+    },
+    "layers.5.mlp.up_proj": {
+      "loss": 2.4722864627838135,
+      "damp": 0.0018394201761111617,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 6.5466532707214355,
+      "hdiag_median": 0.1313336044549942,
+      "hdiag_mean": 0.1839420199394226
+    },
+    "layers.5.mlp.down_proj": {
+      "loss": 0.04807265102863312,
+      "damp": 3.8454036257462576e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.0711936950683594,
+      "hdiag_median": 0.0025337333790957928,
+      "hdiag_mean": 0.0038454036694020033
+    },
+    "layers.6.self_attn.q_proj": {
+      "loss": 2.93489933013916,
+      "damp": 0.004568581935018301,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.170740127563477,
+      "hdiag_median": 0.2577988803386688,
+      "hdiag_mean": 0.45685818791389465
+    },
+    "layers.6.self_attn.k_proj": {
+      "loss": 1.8075611591339111,
+      "damp": 0.004568581935018301,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.170740127563477,
+      "hdiag_median": 0.2577988803386688,
+      "hdiag_mean": 0.45685818791389465
+    },
+    "layers.6.self_attn.v_proj": {
+      "loss": 0.22154758870601654,
+      "damp": 0.004568581935018301,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.170740127563477,
+      "hdiag_median": 0.2577988803386688,
+      "hdiag_mean": 0.45685818791389465
+    },
+    "layers.6.self_attn.o_proj": {
+      "loss": 0.03695235401391983,
+      "damp": 0.00026275296113453805,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.3235807418823242,
+      "hdiag_median": 0.014896074309945107,
+      "hdiag_mean": 0.02627529762685299
+    },
+    "layers.6.mlp.gate_proj": {
+      "loss": 4.553493976593018,
+      "damp": 0.0019380457233637571,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.222249031066895,
+      "hdiag_median": 0.13710089027881622,
+      "hdiag_mean": 0.1938045769929886
+    },
+    "layers.6.mlp.up_proj": {
+      "loss": 2.512885570526123,
+      "damp": 0.0019380457233637571,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.222249031066895,
+      "hdiag_median": 0.13710089027881622,
+      "hdiag_mean": 0.1938045769929886
+    },
+    "layers.6.mlp.down_proj": {
+      "loss": 0.04805856943130493,
+      "damp": 3.767123416764662e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.6354121565818787,
+      "hdiag_median": 0.002678928431123495,
+      "hdiag_mean": 0.003767123445868492
+    },
+    "layers.7.self_attn.q_proj": {
+      "loss": 3.4155921936035156,
+      "damp": 0.004662973340600729,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 20.84059715270996,
+      "hdiag_median": 0.2721830904483795,
+      "hdiag_mean": 0.46629732847213745
+    },
+    "layers.7.self_attn.k_proj": {
+      "loss": 1.785541296005249,
+      "damp": 0.004662973340600729,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 20.84059715270996,
+      "hdiag_median": 0.2721830904483795,
+      "hdiag_mean": 0.46629732847213745
+    },
+    "layers.7.self_attn.v_proj": {
+      "loss": 0.24321487545967102,
+      "damp": 0.004662973340600729,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 20.84059715270996,
+      "hdiag_median": 0.2721830904483795,
+      "hdiag_mean": 0.46629732847213745
+    },
+    "layers.7.self_attn.o_proj": {
+      "loss": 0.02857370860874653,
+      "damp": 0.00023825696553103626,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.737809419631958,
+      "hdiag_median": 0.012693202123045921,
+      "hdiag_mean": 0.023825697600841522
+    },
+    "layers.7.mlp.gate_proj": {
+      "loss": 4.387874126434326,
+      "damp": 0.001953709404915571,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.18328857421875,
+      "hdiag_median": 0.13528099656105042,
+      "hdiag_mean": 0.19537094235420227
+    },
+    "layers.7.mlp.up_proj": {
+      "loss": 2.66918683052063,
+      "damp": 0.001953709404915571,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 10.18328857421875,
+      "hdiag_median": 0.13528099656105042,
+      "hdiag_mean": 0.19537094235420227
+    },
+    "layers.7.mlp.down_proj": {
+      "loss": 0.05518234893679619,
+      "damp": 4.307933340896852e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.1804078817367554,
+      "hdiag_median": 0.0030478539410978556,
+      "hdiag_mean": 0.004307933617383242
+    },
+    "layers.8.self_attn.q_proj": {
+      "loss": 3.90853214263916,
+      "damp": 0.0054993340745568275,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 33.54233932495117,
+      "hdiag_median": 0.2992258071899414,
+      "hdiag_mean": 0.5499334335327148
+    },
+    "layers.8.self_attn.k_proj": {
+      "loss": 2.2973837852478027,
+      "damp": 0.0054993340745568275,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 33.54233932495117,
+      "hdiag_median": 0.2992258071899414,
+      "hdiag_mean": 0.5499334335327148
+    },
+    "layers.8.self_attn.v_proj": {
+      "loss": 0.23906350135803223,
+      "damp": 0.0054993340745568275,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 33.54233932495117,
+      "hdiag_median": 0.2992258071899414,
+      "hdiag_mean": 0.5499334335327148
+    },
+    "layers.8.self_attn.o_proj": {
+      "loss": 0.04694470018148422,
+      "damp": 0.0003089047968387604,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.7336403131484985,
+      "hdiag_median": 0.01710144430398941,
+      "hdiag_mean": 0.030890481546521187
+    },
+    "layers.8.mlp.gate_proj": {
+      "loss": 5.110477447509766,
+      "damp": 0.0022677448578178883,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 9.174074172973633,
+      "hdiag_median": 0.14002662897109985,
+      "hdiag_mean": 0.22677449882030487
+    },
+    "layers.8.mlp.up_proj": {
+      "loss": 3.1667795181274414,
+      "damp": 0.0022677448578178883,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 9.174074172973633,
+      "hdiag_median": 0.14002662897109985,
+      "hdiag_mean": 0.22677449882030487
+    },
+    "layers.8.mlp.down_proj": {
+      "loss": 0.07647661864757538,
+      "damp": 5.7029752497328445e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.8262228965759277,
+      "hdiag_median": 0.003960719332098961,
+      "hdiag_mean": 0.005702975206077099
+    },
+    "layers.9.self_attn.q_proj": {
+      "loss": 4.379117965698242,
+      "damp": 0.004587536212056875,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 18.6242733001709,
+      "hdiag_median": 0.26687243580818176,
+      "hdiag_mean": 0.45875364542007446
+    },
+    "layers.9.self_attn.k_proj": {
+      "loss": 1.7431576251983643,
+      "damp": 0.004587536212056875,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 18.6242733001709,
+      "hdiag_median": 0.26687243580818176,
+      "hdiag_mean": 0.45875364542007446
+    },
+    "layers.9.self_attn.v_proj": {
+      "loss": 0.27506232261657715,
+      "damp": 0.004587536212056875,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 18.6242733001709,
+      "hdiag_median": 0.26687243580818176,
+      "hdiag_mean": 0.45875364542007446
+    },
+    "layers.9.self_attn.o_proj": {
+      "loss": 0.049332063645124435,
+      "damp": 0.0002779672504402697,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.8153536319732666,
+      "hdiag_median": 0.01915353164076805,
+      "hdiag_mean": 0.027796726673841476
+    },
+    "layers.9.mlp.gate_proj": {
+      "loss": 5.516871452331543,
+      "damp": 0.0023281951434910297,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 9.434629440307617,
+      "hdiag_median": 0.1498064249753952,
+      "hdiag_mean": 0.23281951248645782
+    },
+    "layers.9.mlp.up_proj": {
+      "loss": 3.345960855484009,
+      "damp": 0.0023281951434910297,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 9.434629440307617,
+      "hdiag_median": 0.1498064249753952,
+      "hdiag_mean": 0.23281951248645782
+    },
+    "layers.9.mlp.down_proj": {
+      "loss": 0.09353621304035187,
+      "damp": 7.376520079560578e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 1.8894838094711304,
+      "hdiag_median": 0.00517176603898406,
+      "hdiag_mean": 0.007376520428806543
+    },
+    "layers.10.self_attn.q_proj": {
+      "loss": 5.0427775382995605,
+      "damp": 0.0068869078531861305,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 37.294063568115234,
+      "hdiag_median": 0.31229832768440247,
+      "hdiag_mean": 0.6886907815933228
+    },
+    "layers.10.self_attn.k_proj": {
+      "loss": 2.159041404724121,
+      "damp": 0.0068869078531861305,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 37.294063568115234,
+      "hdiag_median": 0.31229832768440247,
+      "hdiag_mean": 0.6886907815933228
+    },
+    "layers.10.self_attn.v_proj": {
+      "loss": 0.3561147451400757,
+      "damp": 0.0068869078531861305,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 37.294063568115234,
+      "hdiag_median": 0.31229832768440247,
+      "hdiag_mean": 0.6886907815933228
+    },
+    "layers.10.self_attn.o_proj": {
+      "loss": 0.0408826619386673,
+      "damp": 0.0002514372463338077,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.48373135924339294,
+      "hdiag_median": 0.016339458525180817,
+      "hdiag_mean": 0.02514372393488884
+    },
+    "layers.10.mlp.gate_proj": {
+      "loss": 6.235439300537109,
+      "damp": 0.002655313815921545,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 8.810832977294922,
+      "hdiag_median": 0.18266312777996063,
+      "hdiag_mean": 0.26553139090538025
+    },
+    "layers.10.mlp.up_proj": {
+      "loss": 3.9311656951904297,
+      "damp": 0.002655313815921545,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 8.810832977294922,
+      "hdiag_median": 0.18266312777996063,
+      "hdiag_mean": 0.26553139090538025
+    },
+    "layers.10.mlp.down_proj": {
+      "loss": 0.11575430631637573,
+      "damp": 8.658190199639648e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 2.755906581878662,
+      "hdiag_median": 0.006183653138577938,
+      "hdiag_mean": 0.008658190257847309
+    },
+    "layers.11.self_attn.q_proj": {
+      "loss": 4.759103298187256,
+      "damp": 0.005866226274520159,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 23.40086555480957,
+      "hdiag_median": 0.27200770378112793,
+      "hdiag_mean": 0.5866226553916931
+    },
+    "layers.11.self_attn.k_proj": {
+      "loss": 2.415708065032959,
+      "damp": 0.005866226274520159,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 23.40086555480957,
+      "hdiag_median": 0.27200770378112793,
+      "hdiag_mean": 0.5866226553916931
+    },
+    "layers.11.self_attn.v_proj": {
+      "loss": 0.32295992970466614,
+      "damp": 0.005866226274520159,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 23.40086555480957,
+      "hdiag_median": 0.27200770378112793,
+      "hdiag_mean": 0.5866226553916931
+    },
+    "layers.11.self_attn.o_proj": {
+      "loss": 0.030263332650065422,
+      "damp": 0.00016062098438851535,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.4450848400592804,
+      "hdiag_median": 0.008703128434717655,
+      "hdiag_mean": 0.016062099486589432
+    },
+    "layers.11.mlp.gate_proj": {
+      "loss": 6.509918212890625,
+      "damp": 0.0027292906306684017,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 8.31210708618164,
+      "hdiag_median": 0.19445809721946716,
+      "hdiag_mean": 0.2729290723800659
+    },
+    "layers.11.mlp.up_proj": {
+      "loss": 4.185382843017578,
+      "damp": 0.0027292906306684017,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 8.31210708618164,
+      "hdiag_median": 0.19445809721946716,
+      "hdiag_mean": 0.2729290723800659
+    },
+    "layers.11.mlp.down_proj": {
+      "loss": 0.13112135231494904,
+      "damp": 9.926196071319282e-05,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 4.294430732727051,
+      "hdiag_median": 0.0059225731529295444,
+      "hdiag_mean": 0.009926196187734604
+    },
+    "layers.12.self_attn.q_proj": {
+      "loss": 4.558734893798828,
+      "damp": 0.0057786512188613415,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 32.152645111083984,
+      "hdiag_median": 0.22819028794765472,
+      "hdiag_mean": 0.5778651237487793
+    },
+    "layers.12.self_attn.k_proj": {
+      "loss": 2.201322555541992,
+      "damp": 0.0057786512188613415,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 32.152645111083984,
+      "hdiag_median": 0.22819028794765472,
+      "hdiag_mean": 0.5778651237487793
+    },
+    "layers.12.self_attn.v_proj": {
+      "loss": 0.3398447632789612,
+      "damp": 0.0057786512188613415,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 32.152645111083984,
+      "hdiag_median": 0.22819028794765472,
+      "hdiag_mean": 0.5778651237487793
+    },
+    "layers.12.self_attn.o_proj": {
+      "loss": 0.03590625524520874,
+      "damp": 0.00023055668862070888,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.9489622712135315,
+      "hdiag_median": 0.012647388502955437,
+      "hdiag_mean": 0.02305566892027855
+    },
+    "layers.12.mlp.gate_proj": {
+      "loss": 6.540804862976074,
+      "damp": 0.002803054405376315,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 5.624939441680908,
+      "hdiag_median": 0.20581869781017303,
+      "hdiag_mean": 0.2803054451942444
+    },
+    "layers.12.mlp.up_proj": {
+      "loss": 4.396251678466797,
+      "damp": 0.002803054405376315,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 5.624939441680908,
+      "hdiag_median": 0.20581869781017303,
+      "hdiag_mean": 0.2803054451942444
+    },
+    "layers.12.mlp.down_proj": {
+      "loss": 0.1638641059398651,
+      "damp": 0.0001076533881132491,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 2.334134817123413,
+      "hdiag_median": 0.005269994027912617,
+      "hdiag_mean": 0.010765339247882366
+    },
+    "layers.13.self_attn.q_proj": {
+      "loss": 5.357235908508301,
+      "damp": 0.007282172329723835,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 38.26813888549805,
+      "hdiag_median": 0.26668766140937805,
+      "hdiag_mean": 0.7282172441482544
+    },
+    "layers.13.self_attn.k_proj": {
+      "loss": 2.2875828742980957,
+      "damp": 0.007282172329723835,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 38.26813888549805,
+      "hdiag_median": 0.26668766140937805,
+      "hdiag_mean": 0.7282172441482544
+    },
+    "layers.13.self_attn.v_proj": {
+      "loss": 0.5993635654449463,
+      "damp": 0.007282172329723835,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 38.26813888549805,
+      "hdiag_median": 0.26668766140937805,
+      "hdiag_mean": 0.7282172441482544
+    },
+    "layers.13.self_attn.o_proj": {
+      "loss": 0.04515288025140762,
+      "damp": 0.00023297056031879038,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 0.8689718842506409,
+      "hdiag_median": 0.012713906355202198,
+      "hdiag_mean": 0.023297056555747986
+    },
+    "layers.13.mlp.gate_proj": {
+      "loss": 6.966745376586914,
+      "damp": 0.003082545939832926,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 5.344101905822754,
+      "hdiag_median": 0.23558832705020905,
+      "hdiag_mean": 0.308254599571228
+    },
+    "layers.13.mlp.up_proj": {
+      "loss": 5.096123695373535,
+      "damp": 0.003082545939832926,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 5.344101905822754,
+      "hdiag_median": 0.23558832705020905,
+      "hdiag_mean": 0.308254599571228
+    },
+    "layers.13.mlp.down_proj": {
+      "loss": 0.2547603249549866,
+      "damp": 0.00017911171016748995,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 14.626879692077637,
+      "hdiag_median": 0.008459414355456829,
+      "hdiag_mean": 0.017911171540617943
+    },
+    "layers.14.self_attn.q_proj": {
+      "loss": 4.89339017868042,
+      "damp": 0.006255065090954304,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 41.10158157348633,
+      "hdiag_median": 0.21104201674461365,
+      "hdiag_mean": 0.6255065202713013
+    },
+    "layers.14.self_attn.k_proj": {
+      "loss": 2.021864652633667,
+      "damp": 0.006255065090954304,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 41.10158157348633,
+      "hdiag_median": 0.21104201674461365,
+      "hdiag_mean": 0.6255065202713013
+    },
+    "layers.14.self_attn.v_proj": {
+      "loss": 1.1302968263626099,
+      "damp": 0.006255065090954304,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 41.10158157348633,
+      "hdiag_median": 0.21104201674461365,
+      "hdiag_mean": 0.6255065202713013
+    },
+    "layers.14.self_attn.o_proj": {
+      "loss": 0.08506769686937332,
+      "damp": 0.0003404778253752738,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 3.3949546813964844,
+      "hdiag_median": 0.019835779443383217,
+      "hdiag_mean": 0.03404778242111206
+    },
+    "layers.14.mlp.gate_proj": {
+      "loss": 8.02804946899414,
+      "damp": 0.003298411378636956,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 4.636768341064453,
+      "hdiag_median": 0.2642873227596283,
+      "hdiag_mean": 0.32984113693237305
+    },
+    "layers.14.mlp.up_proj": {
+      "loss": 5.48615837097168,
+      "damp": 0.003298411378636956,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 4.636768341064453,
+      "hdiag_median": 0.2642873227596283,
+      "hdiag_mean": 0.32984113693237305
+    },
+    "layers.14.mlp.down_proj": {
+      "loss": 0.3421691060066223,
+      "damp": 0.0002775880857370794,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 21.841320037841797,
+      "hdiag_median": 0.01059338916093111,
+      "hdiag_mean": 0.027758808806538582
+    },
+    "layers.15.self_attn.q_proj": {
+      "loss": 4.303213119506836,
+      "damp": 0.005811515264213085,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 18.70170783996582,
+      "hdiag_median": 0.2724694609642029,
+      "hdiag_mean": 0.58115154504776
+    },
+    "layers.15.self_attn.k_proj": {
+      "loss": 2.115612030029297,
+      "damp": 0.005811515264213085,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 18.70170783996582,
+      "hdiag_median": 0.2724694609642029,
+      "hdiag_mean": 0.58115154504776
+    },
+    "layers.15.self_attn.v_proj": {
+      "loss": 1.1136937141418457,
+      "damp": 0.005811515264213085,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 18.70170783996582,
+      "hdiag_median": 0.2724694609642029,
+      "hdiag_mean": 0.58115154504776
+    },
+    "layers.15.self_attn.o_proj": {
+      "loss": 0.362577885389328,
+      "damp": 0.0010790597880259156,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 22.22113609313965,
+      "hdiag_median": 0.028892848640680313,
+      "hdiag_mean": 0.10790598392486572
+    },
+    "layers.15.mlp.gate_proj": {
+      "loss": 8.71761703491211,
+      "damp": 0.003282765857875347,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 2.769198417663574,
+      "hdiag_median": 0.28712260723114014,
+      "hdiag_mean": 0.3282766044139862
+    },
+    "layers.15.mlp.up_proj": {
+      "loss": 6.512986660003662,
+      "damp": 0.003282765857875347,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 2.769198417663574,
+      "hdiag_median": 0.28712260723114014,
+      "hdiag_mean": 0.3282766044139862
+    },
+    "layers.15.mlp.down_proj": {
+      "loss": 0.8773499727249146,
+      "damp": 0.0012017403496429324,
+      "dead_cols": 0,
+      "scale_growth": 1.0,
+      "hdiag_max": 36.08445739746094,
+      "hdiag_median": 0.020573681220412254,
+      "hdiag_mean": 0.12017404288053513
+    }
+  }
+}
