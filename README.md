@@ -260,7 +260,7 @@ Plus: a speedup-vs-M plot for M ∈ {1, 2, 4, …, 256} with the crossover marke
 | 3 · AWQ | Scale search, clip search, scale folding (GQA-aware) | Within 1% of llm-compressor; folded model output equals unfolded model output before quantization |
 | 4 · Triton kernel ✅ | GEMV/split-K and tiled-GEMM W4A16 paths behind `QuantLinear(backend="triton")` | ✅ matches the reference path on all layer shapes, M = 1…255 (GPU tests); ✅ whole-model perplexity through the kernel reproduces the reference (11.728); ✅ faster than fp16 cuBLAS at M = 1 on every layer shape (1.19–2.60×) |
 | 5 · Kernel tuning ✅ | Practical ceiling, Nsight Compute profile, then unpack-once tiles, a GEMM path with BLOCK_M = 16, a GEMV kernel for M = 1 and measured per-shape dispatch, each benchmarked separately | ✅ achieved bandwidth at M = 1 is 81–87% of cuBLAS's on the large shapes (3.1–3.3× speedup); ✗ small-shape floor barely moved (k/v_proj 16.4 → 15.4 µs; fixed per-call cost, see above); ✅ dispatch measures paths and unpack variants per shape; ✅ GPU tests and whole-model perplexity through the kernel (11.728) still pass |
-| 6 · End to end | Swap all Linears; decode tok/s, memory, lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
+| 6 · End to end 🔄 | Swap all Linears; fuse q/k/v and gate/up; decode tok/s (eager, CUDA graph) and GPU time per token, memory; lm-eval tasks; ablations | Tables above filled; lm-eval accuracy unchanged between reference and Triton backends |
 | 7 · Write-up | README results, plots, known limitations | A reader can rebuild every table from `results/` with one command |
 
 **Stretch (only if Phases 1–7 are done):** FP8 W8A8 on the L4 (sm_89 supports it); comparison against the
@@ -277,6 +277,8 @@ Marlin kernel via vLLM; Llama-3.2-3B repeat. **Next project:** on-device backend
 | `quantkit/kernels/` | `w4a16.py`: split-K and tiled Triton W4A16 kernels, autotuning, `w4a16_matmul` entry point |
 | `quantkit/eval/` | perplexity; lm-eval-harness wrapper (Phase 6) |
 | `quantkit/model.py` | apply quantization to a HF model; save/load packed checkpoints |
+| `quantkit/fuse.py` | runtime fusion of q/k/v and gate/up into single matmuls (fp16 or int4) |
+| `quantkit/decode.py` | greedy batch-1 decoding with a static KV cache, eager or replayed from a CUDA graph |
 | `quantkit/env.py` | environment capture written into every result |
 | `scripts/` | `quantize_eval.py`; `reference_gptqmodel.py` (parity run); `compare_checkpoints.py` (module-by-module diff vs a GPTQ-format checkpoint); `inspect_gptq.py` (per-module loss, Hessian lopsidedness); benchmark and table scripts as phases land |
 | `tests/` | unit tests (CPU) and GPU tests (`-m gpu`) |
@@ -320,6 +322,9 @@ python scripts/quantize_eval.py --load ckpt/rtn-g128 --backend triton     # perp
 python scripts/bench_kernel.py                                          # kernel vs fp16 cuBLAS, M = 1..256
 python scripts/bw_ceiling.py                                            # practical DRAM bandwidth
 ncu --profile-from-start off python scripts/profile_kernel.py --shape gate/up_proj --M 1
+
+python scripts/quantize_eval.py --load ckpt/gptq-ao-g128 --backend triton --fuse    # fused fast path, accuracy
+python scripts/bench_decode.py --configs fp16 fp16+fuse w4:ckpt/gptq-ao-g128 w4+fuse:ckpt/gptq-ao-g128
 ```
 
 ## Known limitations

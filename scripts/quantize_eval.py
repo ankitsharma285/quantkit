@@ -93,6 +93,7 @@ def main() -> None:
     ap.add_argument("--load", type=str, default=None, help="dir of a saved packed checkpoint")
     ap.add_argument("--backend", choices=["reference", "triton"], default="reference",
                     help="QuantLinear forward path used for evaluation")
+    ap.add_argument("--fuse", action="store_true", help="fuse q/k/v and gate/up for evaluation")
     ap.add_argument("--results-dir", default="results")
     args = ap.parse_args()
 
@@ -150,6 +151,15 @@ def main() -> None:
         label += f"+{args.backend}"
         meta["backend"] = args.backend
         print(f"switched {n} QuantLinear modules to the {args.backend} backend")
+
+    if args.fuse:
+        if args.save:
+            raise SystemExit("--fuse is an evaluation-time transform; don't combine with --save")
+        from quantkit.fuse import fuse_projections
+
+        fuse_projections(model)
+        label += "+fuse"
+        meta["fused"] = True
 
     if args.save:
         if args.fake or args.method == "fp16":
